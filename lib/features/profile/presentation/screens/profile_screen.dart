@@ -1,0 +1,605 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:go_router/go_router.dart';
+import 'package:nexus_edu/core/data/learning_catalog.dart';
+import 'package:nexus_edu/core/services/ai_service.dart';
+import 'package:nexus_edu/core/services/learner_profile_service.dart';
+
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  String? _selectedClass;
+  Set<String> _completedShorts = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final selectedClass = await LearnerProfileService.getSelectedClass();
+    final completed = await LearnerProfileService.getCompletedShortIds();
+    if (!mounted) return;
+    setState(() {
+      _selectedClass = selectedClass;
+      _completedShorts = completed;
+      _isLoading = false;
+    });
+  }
+
+  bool get _hasGeminiKey {
+    final key = AiService.apiKey?.trim();
+    return key != null && key.isNotEmpty && key != 'your_api_key_here';
+  }
+
+  Future<void> _showSettingsSheet() async {
+    final controller = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 4,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'AI Settings',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: _hasGeminiKey
+                      ? Colors.teal.withAlpha(35)
+                      : Colors.red.withAlpha(35),
+                  child: Icon(
+                    _hasGeminiKey ? Icons.check : Icons.key_off,
+                    color: _hasGeminiKey ? Colors.teal : Colors.redAccent,
+                  ),
+                ),
+                title: Text(
+                  _hasGeminiKey ? 'Gemini connected' : 'Gemini key missing',
+                ),
+                subtitle: const Text(
+                  'Keys are stored locally and never shown here.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Replace Gemini API key',
+                  hintText: 'Paste only if you want to update it',
+                  prefixIcon: Icon(Icons.vpn_key_outlined),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    final value = controller.text.trim();
+                    if (value.isNotEmpty) {
+                      await AiService.saveApiKey(value);
+                    }
+                    if (context.mounted) Navigator.pop(context);
+                    if (mounted) setState(() {});
+                  },
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save Settings'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    controller.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Profile',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.leaderboard, color: Colors.amber),
+            onPressed: () => context.push('/leaderboard'),
+            tooltip: 'Leaderboard',
+          ),
+          IconButton(
+            icon: const Icon(Icons.school, color: Colors.teal),
+            onPressed: () => context.push('/teacher-dashboard'),
+            tooltip: 'Teacher Mode',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _showSettingsSheet,
+            tooltip: 'Settings',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadProfile,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+                children: [
+                  _buildProfileHeader(
+                    context,
+                  ).animate().fade().slideY(begin: -0.08),
+                  const SizedBox(height: 18),
+                  _buildClassCard(context).animate().fade(delay: 100.ms),
+                  const SizedBox(height: 18),
+                  _buildStatsSection(context).animate().fade(delay: 180.ms),
+                  const SizedBox(height: 24),
+                  _buildCertificatesSection(
+                    context,
+                  ).animate().fade(delay: 260.ms),
+                  const SizedBox(height: 24),
+                  _buildAchievementsSection(
+                    context,
+                  ).animate().fade(delay: 340.ms),
+                  const SizedBox(height: 24),
+                  _buildRecentActivity(context).animate().fade(delay: 420.ms),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _buildProfileHeader(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              colors: [Colors.deepPurple, Colors.blueAccent],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.deepPurple.withAlpha(45),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: const CircleAvatar(
+            radius: 42,
+            backgroundImage: NetworkImage('https://i.pravatar.cc/300'),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Alex Learner',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Level 15 Scholar',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildStatusPill(
+                    _selectedClass ?? 'Guest mode',
+                    _selectedClass == null
+                        ? Icons.person_outline
+                        : Icons.school,
+                    Colors.deepPurpleAccent,
+                  ),
+                  _buildStatusPill(
+                    _hasGeminiKey ? 'AI ready' : 'AI key needed',
+                    _hasGeminiKey ? Icons.check_circle : Icons.key_off,
+                    _hasGeminiKey ? Colors.teal : Colors.redAccent,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClassCard(BuildContext context) {
+    final subjects = LearningCatalog.subjectsFor(_selectedClass);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withAlpha(135),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Theme.of(context).dividerColor.withAlpha(40)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 46,
+                width: 46,
+                decoration: BoxDecoration(
+                  color: Colors.deepPurpleAccent.withAlpha(35),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  _selectedClass == null ? Icons.person_outline : Icons.school,
+                  color: Colors.deepPurpleAccent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _selectedClass ?? 'Guest learning',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _selectedClass == null
+                          ? 'Shorts will ask topic first.'
+                          : '${subjects.length} subjects linked to Shorts.',
+                      style: TextStyle(color: Theme.of(context).hintColor),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (subjects.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final subject in subjects)
+                  _buildStatusPill(subject.name, subject.icon, subject.color),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => context.push('/elearning-class'),
+                  icon: const Icon(Icons.tune),
+                  label: const Text('Change Class'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => context.go('/feed'),
+                  icon: const Icon(Icons.smart_display),
+                  label: const Text('Open Shorts'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsSection(BuildContext context) {
+    final items = [
+      _StatItem('120', 'Notes Scanned', Icons.document_scanner),
+      _StatItem('45', 'Flashcards', Icons.swipe),
+      _StatItem(
+        '${_completedShorts.length}',
+        'Shorts Done',
+        Icons.check_circle,
+      ),
+      _StatItem('3', 'Certificates', Icons.workspace_premium),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        childAspectRatio: 0.74,
+        crossAxisSpacing: 8,
+      ),
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return Column(
+          children: [
+            Container(
+              height: 44,
+              width: 44,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                item.icon,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              item.value,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              item.label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCertificatesSection(BuildContext context) {
+    final certificates = LearningCatalog.certificatesFor(
+      selectedClass: _selectedClass,
+      completedShorts: _completedShorts.length,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Certifications',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () => context.go('/feed'),
+              icon: const Icon(Icons.play_arrow, size: 18),
+              label: const Text('Earn more'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 154,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: certificates.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final certificate = certificates[index];
+              return Container(
+                width: 230,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: certificate.color.withAlpha(22),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: certificate.color.withAlpha(80)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(certificate.icon, color: certificate.color),
+                        const Spacer(),
+                        Text(
+                          '${(certificate.progress * 100).round()}%',
+                          style: TextStyle(
+                            color: certificate.color,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      certificate.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      certificate.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Theme.of(context).hintColor),
+                    ),
+                    const Spacer(),
+                    LinearProgressIndicator(
+                      value: certificate.progress,
+                      minHeight: 7,
+                      borderRadius: BorderRadius.circular(20),
+                      backgroundColor: certificate.color.withAlpha(35),
+                      color: certificate.color,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAchievementsSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Badges',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            _buildBadge(
+              Icons.local_fire_department,
+              '7 Day Streak',
+              Colors.orange,
+            ),
+            const SizedBox(width: 14),
+            _buildBadge(Icons.psychology, 'Top 5% Thinker', Colors.purple),
+            const SizedBox(width: 14),
+            _buildBadge(Icons.speed, 'Speed Reader', Colors.blue),
+            const SizedBox(width: 14),
+            _buildBadge(Icons.verified, 'Certified Learner', Colors.teal),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBadge(IconData icon, String tooltip, Color color) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: color.withAlpha(20),
+          shape: BoxShape.circle,
+          border: Border.all(color: color.withAlpha(65), width: 2),
+        ),
+        child: Icon(icon, color: color, size: 28),
+      ),
+    );
+  }
+
+  Widget _buildRecentActivity(BuildContext context) {
+    final activities = [
+      _ActivityItem(
+        Icons.check,
+        Colors.tealAccent,
+        'Mastered Big O Notation',
+        '2 hours ago',
+      ),
+      _ActivityItem(
+        Icons.smart_display,
+        Colors.redAccent,
+        _selectedClass == null
+            ? 'Used Guest Shorts by topic'
+            : 'Watched $_selectedClass syllabus Shorts',
+        'Today',
+      ),
+      _ActivityItem(
+        Icons.chat,
+        Colors.blueAccent,
+        'Chatted with AI Tutor',
+        'Yesterday',
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Recent Activity',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        for (final activity in activities)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: CircleAvatar(
+              backgroundColor: activity.color.withAlpha(45),
+              child: Icon(activity.icon, color: activity.color),
+            ),
+            title: Text(activity.title),
+            subtitle: Text(activity.subtitle),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatusPill(String label, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withAlpha(55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatItem {
+  const _StatItem(this.value, this.label, this.icon);
+
+  final String value;
+  final String label;
+  final IconData icon;
+}
+
+class _ActivityItem {
+  const _ActivityItem(this.icon, this.color, this.title, this.subtitle);
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+}

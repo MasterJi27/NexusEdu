@@ -1,0 +1,26 @@
+# Task: UI/UX Improvements for NexusEdu
+
+- [x] Researching Current UI/UX Implementation
+    - [x] List files in `lib/features`
+    - [x] List files in `lib/core`
+    - [x] Inspect `DashboardScreen` and related widgets
+    - [x] Inspect AI Chat implementation (likely in `tutor` feature)
+    - [x] Check for existing animation or gamification code
+- [x] Create Implementation Plan
+- [x] Implement Advanced Animations & Micro-interactions
+    - [x] Add Hero animations for transitions
+    - [x] Add Haptic feedback to interactions
+    - [x] Implement Shimmer/Animated loading states
+- [x] Implement Gamification Polish
+    - [x] Animate streak flame
+    - [x] Add 3D-ready layouts for trophies
+- [x] Implement AI-Specific UX Enhancements
+    - [x] Implement streaming text effect for Gemini
+    - [x] Improve "Thinking" indicators (Heartbeat pulse)
+    - [x] Add contextual suggestion chips (ELI5, Summarize)
+- [x] Implement Layout & Visual Refinements
+    - [x] Refine Glassmorphism effects (Floating Nav Bar)
+    - [x] Add dynamic ambient background glows
+- [x] Verification and Polish
+    - [x] Fix Gemini API Model name
+    - [x] Run `flutter analyze` and fix imports
