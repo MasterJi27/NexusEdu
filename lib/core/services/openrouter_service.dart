@@ -61,6 +61,7 @@ class OpenRouterService {
     return chat(
       question,
       systemPrompt: 'You are a helpful tutor for $subject. '
+          'ALWAYS respond in clear English. NEVER use Hinglish. '
           'Explain step by step in simple language. '
           'Use examples where possible. '
           'Keep the explanation clear and concise.',
@@ -72,7 +73,8 @@ class OpenRouterService {
       'Explain the concept of $concept in $subject in detail. '
       'Use real-life examples and analogies. '
       'Make it easy to understand for a student.',
-      systemPrompt: 'You are an expert $subject teacher. '
+      systemPrompt: 'You are an expert $subject teacher for Indian students. '
+          'ALWAYS respond in clear English. NEVER use Hinglish. '
           'Explain concepts in a simple, engaging way.',
     );
   }

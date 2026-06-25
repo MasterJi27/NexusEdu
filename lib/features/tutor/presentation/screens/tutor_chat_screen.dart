@@ -264,7 +264,6 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
   }
 
   Widget _buildTutorTools(String? selectedClass) {
-    final classLabel = selectedClass ?? 'Guest';
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       decoration: BoxDecoration(
@@ -275,31 +274,6 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Icon(
-                selectedClass == null ? Icons.person_outline : Icons.school,
-                size: 16,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  '$classLabel tutor context',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).hintColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              TextButton(
-                onPressed: () => context.push('/elearning-class'),
-                child: const Text('Change'),
-              ),
-            ],
-          ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(

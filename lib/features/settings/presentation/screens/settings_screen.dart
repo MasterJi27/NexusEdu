@@ -63,8 +63,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return key != null && key.isNotEmpty && key != 'your_api_key_here';
   }
 
-  bool get _hasYoutubeKey => YoutubeDiscoveryService.hasApiKey;
-
   Future<void> _showApiKeySheet({
     required String title,
     required String label,
@@ -170,25 +168,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               _ApiStatusTile(
                 connected: _hasGeminiKey,
-                connectedTitle: 'Gemini connected',
-                missingTitle: 'Gemini key needed',
-                subtitle: 'Required for Tutor, Scanner, Notes and AI tools.',
+                connectedTitle: 'OpenRouter connected',
+                missingTitle: 'OpenRouter API key needed',
+                subtitle: 'Powers AI Tutor, Notes, Quiz, Scanner and all AI tools.',
                 onPressed: () => _showApiKeySheet(
-                  title: 'Gemini key',
-                  label: 'Gemini API key',
+                  title: 'OpenRouter key',
+                  label: 'OpenRouter API key',
                   onSave: AiService.saveApiKey,
-                ),
-              ),
-              const Divider(color: Colors.white12),
-              _ApiStatusTile(
-                connected: _hasYoutubeKey,
-                connectedTitle: 'YouTube Shorts connected',
-                missingTitle: 'YouTube Shorts key needed',
-                subtitle: 'Required for live YouTube discovery in Shorts.',
-                onPressed: () => _showApiKeySheet(
-                  title: 'YouTube key',
-                  label: 'YouTube Data API key',
-                  onSave: YoutubeDiscoveryService.saveApiKey,
                 ),
               ),
             ],

@@ -5,6 +5,7 @@ import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
 import 'package:nexus_edu/core/services/gamification_service.dart';
 import 'package:nexus_edu/core/services/subject_progress_service.dart';
+import 'package:nexus_edu/core/widgets/animated_background.dart';
 
 const Color _bg = Color(0xFF0F1115);
 const Color _accent = Color(0xFF7C5CFF);
@@ -100,103 +101,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-        children: [
-          _SearchBar(
-            onChanged: (v) => setState(() => _searchQuery = v),
-            onTap: () => context.push('/search'),
-          ),
-          const SizedBox(height: 14),
-          _HeroPanel(
-            selectedClass: _selectedClass,
-            examName: settings.examName,
-            daysLeft: daysLeft,
-            onClassTap: () => context.push('/elearning-class'),
-            gamification: _gamification,
-          ),
-          const SizedBox(height: 14),
-          _ExamCountdown(
-            examName: settings.examName,
-            daysLeft: daysLeft,
-          ),
-          const SizedBox(height: 22),
-          _SectionHeader(
-            title: 'Continue Learning',
-            actionLabel: 'Class',
-            onAction: () => context.push('/elearning-class'),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _PrimaryActionCard(
-                  icon: Icons.auto_stories_outlined,
-                  title: 'My Syllabus',
-                  subtitle: _selectedClass ?? 'Choose class',
-                  color: _accent,
-                  onTap: () => context.push('/elearning-class'),
+      body: AnimatedBackground(
+        enableParticles: true,
+        child: ListView(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          children: [
+            _SearchBar(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              onTap: () => context.push('/search'),
+            ),
+            const SizedBox(height: 14),
+            _HeroPanel(
+              selectedClass: _selectedClass,
+              examName: settings.examName,
+              daysLeft: daysLeft,
+              onClassTap: () => context.push('/elearning-class'),
+              gamification: _gamification,
+            ),
+            const SizedBox(height: 14),
+            _ExamCountdown(
+              examName: settings.examName,
+              daysLeft: daysLeft,
+            ),
+            const SizedBox(height: 22),
+            _SectionHeader(
+              title: 'Continue Learning',
+              actionLabel: 'Class',
+              onAction: () => context.push('/elearning-class'),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _PrimaryActionCard(
+                    icon: Icons.auto_stories_outlined,
+                    title: 'My Syllabus',
+                    subtitle: _selectedClass ?? 'Choose class',
+                    color: _accent,
+                    onTap: () => context.push('/elearning-class'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _PrimaryActionCard(
-                  icon: Icons.smart_display_outlined,
-                  title: 'Shorts',
-                  subtitle: 'Topic-wise videos',
-                  color: const Color(0xFFFF6B6B),
-                  onTap: () => context.go('/feed'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _PrimaryActionCard(
+                    icon: Icons.smart_display_outlined,
+                    title: 'Shorts',
+                    subtitle: 'Topic-wise videos',
+                    color: const Color(0xFFFF6B6B),
+                    onTap: () => context.go('/feed'),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          _SectionHeader(title: 'Your Subjects', actionLabel: 'All', onAction: () => context.push('/elearning-class')),
-          const SizedBox(height: 10),
-          _SubjectProgressSection(subjectProgress: _subjectProgress),
-          const SizedBox(height: 22),
-          const _SectionHeader(title: 'Quick Actions'),
-          const SizedBox(height: 10),
-          _QuickActionsGrid(
-            items: [
-              _HomeAction('AI Tutor', 'Ask doubts clearly', Icons.smart_toy_outlined, '/tutor', _accent),
-              _HomeAction('Daily Quiz', '10 questions, earn XP', Icons.quiz_outlined, '/daily-quiz', const Color(0xFFFF8A65)),
-              _HomeAction('Study Timer', 'Pomodoro focus', Icons.timer_outlined, '/study-timer', _success),
-              _HomeAction('Flashcards', 'Active recall practice', Icons.style_outlined, '/flashcards', const Color(0xFF64B5F6)),
-              _HomeAction('Mistake Journal', 'Review errors', Icons.error_outline, '/mistake-journal', const Color(0xFFFF6B6B)),
-              _HomeAction('Smart Notes', 'Generate and revise', Icons.note_alt_outlined, '/notes', _warning),
-            ],
-            onTap: _openRoute,
-          ),
-          const SizedBox(height: 22),
-          _SectionHeader(title: 'Leaderboard', actionLabel: 'See All', onAction: () => context.push('/leaderboard')),
-          const SizedBox(height: 10),
-          _LeaderboardPreview(gamification: _gamification),
-          const SizedBox(height: 22),
-          const _SectionHeader(title: 'Exam & Progress'),
-          const SizedBox(height: 10),
-          _ActionGrid(
-            items: [
-              _HomeAction('Mock Test', 'Exam-like practice', Icons.assignment_outlined, '/mock-test', const Color(0xFF64B5F6)),
-              _HomeAction('Performance', 'Weak topics and scores', Icons.insights_outlined, '/performance-test', _success),
-              _HomeAction('Book Scanner', 'Scan textbook pages', Icons.document_scanner_outlined, '/scanner', _success),
-              _HomeAction('Study Planner', 'Plan today', Icons.event_note_outlined, '/ai-study-planner', _warning),
-            ],
-            onTap: _openRoute,
-          ),
-          const SizedBox(height: 22),
-          const _SectionHeader(title: 'More'),
-          const SizedBox(height: 10),
-          _MoreList(
-            items: [
-              _HomeAction('AI Tools Library', 'All advanced agents in one place', Icons.auto_awesome_outlined, '/ai-agents', _accent),
-              _HomeAction('India Education Hub', 'NCERT, JEE, NEET and Hindi tools', Icons.flag_outlined, '/india-hub', const Color(0xFFFFB74D)),
-              _HomeAction('Settings', 'Appearance, privacy and study prefs', Icons.tune_outlined, '/settings', _success),
-            ],
-            onTap: _openRoute,
-          ),
-        ],
+              ],
+            ),
+            const SizedBox(height: 22),
+            _SectionHeader(title: 'Your Subjects', actionLabel: 'All', onAction: () => context.push('/elearning-class')),
+            const SizedBox(height: 10),
+            _SubjectProgressSection(subjectProgress: _subjectProgress),
+            const SizedBox(height: 22),
+            const _SectionHeader(title: 'Quick Actions'),
+            const SizedBox(height: 10),
+            _QuickActionsGrid(
+              items: [
+                _HomeAction('AI Tutor', 'Ask doubts clearly', Icons.smart_toy_outlined, '/tutor', _accent),
+                _HomeAction('Daily Quiz', '10 questions, earn XP', Icons.quiz_outlined, '/daily-quiz', const Color(0xFFFF8A65)),
+                _HomeAction('Study Timer', 'Pomodoro focus', Icons.timer_outlined, '/study-timer', _success),
+                _HomeAction('Flashcards', 'Active recall practice', Icons.style_outlined, '/flashcards', const Color(0xFF64B5F6)),
+                _HomeAction('Mistake Journal', 'Review errors', Icons.error_outline, '/mistake-journal', const Color(0xFFFF6B6B)),
+                _HomeAction('Smart Notes', 'Generate and revise', Icons.note_alt_outlined, '/notes', _warning),
+              ],
+              onTap: _openRoute,
+            ),
+            const SizedBox(height: 22),
+            _SectionHeader(title: 'Leaderboard', actionLabel: 'See All', onAction: () => context.push('/leaderboard')),
+            const SizedBox(height: 10),
+            _LeaderboardPreview(gamification: _gamification),
+            const SizedBox(height: 22),
+            const _SectionHeader(title: 'Exam & Progress'),
+            const SizedBox(height: 10),
+            _ActionGrid(
+              items: [
+                _HomeAction('Mock Test', 'Exam-like practice', Icons.assignment_outlined, '/mock-test', const Color(0xFF64B5F6)),
+                _HomeAction('Performance', 'Weak topics and scores', Icons.insights_outlined, '/performance-test', _success),
+                _HomeAction('Book Scanner', 'Scan textbook pages', Icons.document_scanner_outlined, '/scanner', _success),
+                _HomeAction('Study Planner', 'Plan today', Icons.event_note_outlined, '/ai-study-planner', _warning),
+              ],
+              onTap: _openRoute,
+            ),
+            const SizedBox(height: 22),
+            const _SectionHeader(title: 'More'),
+            const SizedBox(height: 10),
+            _MoreList(
+              items: [
+                _HomeAction('AI Tools Library', 'All advanced agents in one place', Icons.auto_awesome_outlined, '/ai-agents', _accent),
+                _HomeAction('India Education Hub', 'NCERT, JEE, NEET and Hindi tools', Icons.flag_outlined, '/india-hub', const Color(0xFFFFB74D)),
+                _HomeAction('Settings', 'Appearance, privacy and study prefs', Icons.tune_outlined, '/settings', _success),
+              ],
+              onTap: _openRoute,
+            ),
+          ],
+        ),
       ),
     );
   }
