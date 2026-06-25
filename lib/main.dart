@@ -121,6 +121,7 @@ import 'package:nexus_edu/features/college_app_writer/presentation/screens/colle
 import 'package:nexus_edu/features/study_abroad/presentation/screens/study_abroad_screen.dart';
 import 'package:nexus_edu/features/dashboard/presentation/screens/ai_agents_gallery_screen.dart';
 import 'package:nexus_edu/features/privacy_policy/presentation/screens/privacy_policy_screen.dart';
+import 'package:nexus_edu/features/settings/presentation/screens/settings_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -445,6 +446,7 @@ final _router = GoRouter(
     GoRoute(path: '/study-abroad', builder: (context, state) => const StudyAbroadScreen()),
     GoRoute(path: '/ai-agents', builder: (context, state) => const AiAgentsGalleryScreen()),
     GoRoute(path: '/privacy-policy', builder: (context, state) => const PrivacyPolicyScreen(isFirstTime: true)),
+    GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
   ],
 );
 

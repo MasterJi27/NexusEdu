@@ -129,37 +129,109 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const Icon(Icons.hub, size: 100, color: Colors.deepPurpleAccent).animate().scale(),
           const SizedBox(height: 32),
           const Text('Welcome to NexusEdu', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
-          const SizedBox(height: 48),
-          _buildGlassButton('Continue with Google', Icons.g_mobiledata, Colors.white, Colors.black, () => context.go('/dashboard')),
+          const SizedBox(height: 12),
+          const Text('Who are you?', style: TextStyle(fontSize: 18, color: Colors.white54)),
+          const SizedBox(height: 32),
+          _buildRoleCard(
+            title: 'Student',
+            subtitle: 'Personalized learning & AI tutor',
+            icon: Icons.school,
+            gradientColors: [Colors.blueAccent, Colors.blue.shade900],
+            route: '/dashboard',
+          ),
           const SizedBox(height: 16),
-          _buildGlassButton('Continue as Guest', Icons.person_outline, Colors.white10, Colors.white, () => context.go('/dashboard')),
+          _buildRoleCard(
+            title: 'Parent',
+            subtitle: 'Track your child\'s progress',
+            icon: Icons.family_restroom,
+            gradientColors: [Colors.tealAccent, Colors.teal.shade900],
+            route: '/parent-dashboard',
+          ),
+          const SizedBox(height: 16),
+          _buildRoleCard(
+            title: 'Teacher',
+            subtitle: 'Manage classes & assignments',
+            icon: Icons.co_present,
+            gradientColors: [Colors.orangeAccent, Colors.deepOrange.shade900],
+            route: '/teacher-dashboard',
+          ),
+          const SizedBox(height: 32),
+          TextButton(
+            onPressed: () => context.go('/dashboard'),
+            child: const Text(
+              'Continue as Guest',
+              style: TextStyle(color: Colors.white38, fontSize: 14),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildGlassButton(String text, IconData icon, Color bg, Color fg, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+  Widget _buildRoleCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required List<Color> gradientColors,
+    required String route,
+  }) {
+    return GestureDetector(
+      onTap: () => context.go(route),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: gradientColors,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withAlpha(40), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: gradientColors[0].withAlpha(50),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: fg),
-            const SizedBox(width: 12),
-            Text(text, style: TextStyle(color: fg, fontSize: 16, fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(30),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(icon, color: Colors.white, size: 36),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 18),
           ],
         ),
       ),
-    ).animate().fade().slideY();
+    ).animate().fade().slideY(begin: 0.15);
   }
 }
 

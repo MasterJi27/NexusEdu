@@ -40,81 +40,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return key != null && key.isNotEmpty && key != 'your_api_key_here';
   }
 
-  Future<void> _showSettingsSheet() async {
-    final controller = TextEditingController();
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 4,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'AI Settings',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  backgroundColor: _hasGeminiKey
-                      ? Colors.teal.withAlpha(35)
-                      : Colors.red.withAlpha(35),
-                  child: Icon(
-                    _hasGeminiKey ? Icons.check : Icons.key_off,
-                    color: _hasGeminiKey ? Colors.teal : Colors.redAccent,
-                  ),
-                ),
-                title: Text(
-                  _hasGeminiKey ? 'Gemini connected' : 'Gemini key missing',
-                ),
-                subtitle: const Text(
-                  'Keys are stored locally and never shown here.',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Replace Gemini API key',
-                  hintText: 'Paste only if you want to update it',
-                  prefixIcon: Icon(Icons.vpn_key_outlined),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () async {
-                    final value = controller.text.trim();
-                    if (value.isNotEmpty) {
-                      await AiService.saveApiKey(value);
-                    }
-                    if (context.mounted) Navigator.pop(context);
-                    if (mounted) setState(() {});
-                  },
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Save Settings'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    controller.dispose();
-  }
-
   void _showExamDatePicker() async {
     final date = await showDatePicker(
       context: context,
@@ -168,7 +93,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: _showSettingsSheet,
+            onPressed: () => context.push('/settings'),
             tooltip: 'Settings',
           ),
         ],
@@ -336,9 +261,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Appearance',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              const Text(
+                'Appearance',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => context.push('/settings'),
+                child: const Text(
+                  'Open in Settings →',
+                  style: TextStyle(color: Colors.deepPurpleAccent, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           ...ThemeMode.values.map((mode) {

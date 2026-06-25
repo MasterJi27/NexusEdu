@@ -17,10 +17,7 @@ class AiService {
         _apiKey != 'your_api_key_here') {
       try {
         _model = GenerativeModel(model: 'gemini-2.0-flash', apiKey: _apiKey!);
-        _visionModel = GenerativeModel(
-          model: 'gemini-2.5-flash',
-          apiKey: _apiKey!,
-        );
+        _visionModel = GenerativeModel(model: 'gemini-2.0-flash', apiKey: _apiKey!);
         _chatSession = _model!.startChat();
         _socraticSession = null;
       } catch (e) {

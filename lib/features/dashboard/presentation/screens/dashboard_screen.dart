@@ -4,9 +4,30 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  String? _userRole;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _userRole = prefs.getString('user_role');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -286,38 +307,27 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                SizedBox(
-                  height: 145,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    clipBehavior: Clip.none,
-                    children: [
-                      _buildMiniFeatureCard(context, title: 'Neural Decoding', subtitle: 'Silent thought-to-learning', icon: Icons.psychology, color: Colors.purpleAccent, route: '/neural-decoding'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Syllabus Universe', subtitle: 'Playable 3D knowledge worlds', icon: Icons.public, color: Colors.tealAccent, route: '/syllabus-universe'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Genetic Learning', subtitle: 'DNA-personalized path', icon: Icons.biotech, color: Colors.pinkAccent, route: '/genetic-learning'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Temporal Learning', subtitle: '6x time dilation sessions', icon: Icons.timer, color: Colors.orangeAccent, route: '/temporal-learning'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Exocortex', subtitle: 'Second brain implant', icon: Icons.headphones, color: Colors.blueAccent, route: '/exocortex'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Quantum Circuit', subtitle: 'Build quantum algorithms', icon: Icons.science, color: Colors.cyanAccent, route: '/quantum-circuit'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Dream Journal', subtitle: 'Lucid dream tutor', icon: Icons.bedtime, color: Colors.indigoAccent, route: '/dream-journal'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'DA University', subtitle: 'On-chain degrees & DAO', icon: Icons.account_balance, color: Colors.amberAccent, route: '/dau'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Singularity Tutor', subtitle: 'IQ 100 → 10,000', icon: Icons.auto_awesome, color: Color(0xFFFFD700), route: '/singularity-tutor'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Self-Assembling AI', subtitle: 'Auto-generates curriculum', icon: Icons.radar, color: Colors.deepPurpleAccent, route: '/curriculum-agent'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: '4D Spaced Repetition', subtitle: 'Time x Context x Mood', icon: Icons.all_inclusive, color: Colors.cyanAccent, route: '/spaced-repetition'),
-                      const SizedBox(width: 12),
-                      _buildMiniFeatureCard(context, title: 'Swarm AGI Tutor', subtitle: '10k agents compete', icon: Icons.groups_3, color: Colors.amberAccent, route: '/swarm-tutor'),
-                    ],
-                  ),
+                GridView.count(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.85,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _buildMiniFeatureCard(context, title: 'Neural Decoding', subtitle: 'Silent thought-to-learning', icon: Icons.psychology, color: Colors.purpleAccent, route: '/neural-decoding'),
+                    _buildMiniFeatureCard(context, title: 'Syllabus Universe', subtitle: 'Playable 3D knowledge worlds', icon: Icons.public, color: Colors.tealAccent, route: '/syllabus-universe'),
+                    _buildMiniFeatureCard(context, title: 'Genetic Learning', subtitle: 'DNA-personalized path', icon: Icons.biotech, color: Colors.pinkAccent, route: '/genetic-learning'),
+                    _buildMiniFeatureCard(context, title: 'Temporal Learning', subtitle: '6x time dilation sessions', icon: Icons.timer, color: Colors.orangeAccent, route: '/temporal-learning'),
+                    _buildMiniFeatureCard(context, title: 'Exocortex', subtitle: 'Second brain implant', icon: Icons.headphones, color: Colors.blueAccent, route: '/exocortex'),
+                    _buildMiniFeatureCard(context, title: 'Quantum Circuit', subtitle: 'Build quantum algorithms', icon: Icons.science, color: Colors.cyanAccent, route: '/quantum-circuit'),
+                    _buildMiniFeatureCard(context, title: 'Dream Journal', subtitle: 'Lucid dream tutor', icon: Icons.bedtime, color: Colors.indigoAccent, route: '/dream-journal'),
+                    _buildMiniFeatureCard(context, title: 'DA University', subtitle: 'On-chain degrees & DAO', icon: Icons.account_balance, color: Colors.amberAccent, route: '/dau'),
+                    _buildMiniFeatureCard(context, title: 'Singularity Tutor', subtitle: 'IQ 100 → 10,000', icon: Icons.auto_awesome, color: Color(0xFFFFD700), route: '/singularity-tutor'),
+                    _buildMiniFeatureCard(context, title: 'Self-Assembling AI', subtitle: 'Auto-generates curriculum', icon: Icons.radar, color: Colors.deepPurpleAccent, route: '/curriculum-agent'),
+                    _buildMiniFeatureCard(context, title: '4D Spaced Repetition', subtitle: 'Time x Context x Mood', icon: Icons.all_inclusive, color: Colors.cyanAccent, route: '/spaced-repetition'),
+                    _buildMiniFeatureCard(context, title: 'Swarm AGI Tutor', subtitle: '10k agents compete', icon: Icons.groups_3, color: Colors.amberAccent, route: '/swarm-tutor'),
+                  ],
                 ),
                 const SizedBox(height: 32),
                 const Text(
@@ -409,6 +419,37 @@ class DashboardScreen extends StatelessWidget {
                     ).animate().fade(delay: 750.ms),
                   ],
                 ),
+                if (_userRole == 'Parent' || _userRole == 'Teacher') ...[
+                  const SizedBox(height: 32),
+                  const Text(
+                    'Quick Access',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_userRole == 'Parent')
+                    _buildQuickAccessCard(
+                      context,
+                      icon: Icons.family_restroom,
+                      title: 'Parent Dashboard',
+                      subtitle: 'Monitor your child\'s progress',
+                      color: Colors.tealAccent,
+                      route: '/parent-dashboard',
+                    ),
+                  if (_userRole == 'Teacher')
+                    _buildQuickAccessCard(
+                      context,
+                      icon: Icons.co_present,
+                      title: 'Teacher Dashboard',
+                      subtitle: 'Manage classes & students',
+                      color: Colors.orangeAccent,
+                      route: '/teacher-dashboard',
+                    ),
+                ],
+                const SizedBox(height: 80),
               ],
             ),
           ),
@@ -766,7 +807,6 @@ class DashboardScreen extends StatelessWidget {
         context.push(route);
       },
         child: Container(
-          width: 180,
           padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFF1E1E1E),
@@ -804,5 +844,54 @@ class DashboardScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildQuickAccessCard(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required String route,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        context.push(route);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withAlpha(60), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withAlpha(30),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: color, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: TextStyle(color: Colors.white.withAlpha(150), fontSize: 12)),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, color: color.withAlpha(150), size: 18),
+          ],
+        ),
+      ),
+    ).animate().fade().slideX(begin: 0.1);
   }
 }

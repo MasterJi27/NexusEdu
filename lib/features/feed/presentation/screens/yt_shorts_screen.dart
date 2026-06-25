@@ -6,6 +6,25 @@ class YtShortsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AiFeedScreen();
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Shorts',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
+        ),
+        elevation: 0,
+      ),
+      body: const AiFeedScreen(),
+    );
   }
 }
