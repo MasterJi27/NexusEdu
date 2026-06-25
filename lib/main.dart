@@ -129,6 +129,7 @@ import 'package:nexus_edu/features/mistake_journal/presentation/screens/mistake_
 import 'package:nexus_edu/features/flashcards/presentation/screens/flashcard_screen.dart';
 import 'package:nexus_edu/features/monetization/presentation/screens/nexus_pro_paywall_screen.dart';
 import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
+import 'package:nexus_edu/core/services/openrouter_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -137,6 +138,7 @@ Future<void> main() async {
   } catch (error) {
     debugPrint('Dotenv load skipped: $error');
   }
+  await OpenRouterService().init();
   await AiService.init();
   await YoutubeDiscoveryService.init();
   await AppSettings.instance.load();
