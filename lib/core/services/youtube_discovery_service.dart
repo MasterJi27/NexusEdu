@@ -1,8 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class YoutubeDiscoveryService {
+  static const String _apiKeyPrefsKey = 'youtube_api_key';
+  static String? _apiKey;
+
   static final Dio _dio = Dio(
     BaseOptions(
       baseUrl: 'https://www.googleapis.com/youtube/v3',
@@ -11,8 +15,23 @@ class YoutubeDiscoveryService {
     ),
   );
 
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _apiKey = (prefs.getString(_apiKeyPrefsKey) ?? dotenv.env['YOUTUBE_API_KEY'])
+        ?.trim();
+  }
+
+  static Future<void> saveApiKey(String key) async {
+    final trimmedKey = key.trim();
+    _apiKey = trimmedKey;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_apiKeyPrefsKey, trimmedKey);
+  }
+
+  static String? get apiKey => _apiKey;
+
   static bool get hasApiKey {
-    final key = dotenv.env['YOUTUBE_API_KEY']?.trim();
+    final key = _apiKey?.trim();
     return key != null && key.isNotEmpty && key != 'your_youtube_api_key_here';
   }
 
@@ -22,7 +41,7 @@ class YoutubeDiscoveryService {
     String? subject,
     String? topic,
   }) async {
-    final key = dotenv.env['YOUTUBE_API_KEY']?.trim();
+    final key = _apiKey?.trim();
     if (key == null || key.isEmpty || key == 'your_youtube_api_key_here') {
       return const [];
     }

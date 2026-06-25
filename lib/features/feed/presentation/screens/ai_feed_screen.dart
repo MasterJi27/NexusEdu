@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
+import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
 import 'package:nexus_edu/features/feed/presentation/providers/feed_provider.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
@@ -92,14 +93,16 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
   Future<void> _submitGuestTopic() async {
     final query = _topicController.text.trim();
     if (query.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Type a topic first.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Type a topic first.')));
       return;
     }
-    
+
     setState(() => _isDiscovering = true);
     await ref.read(feedProvider.notifier).submitGuestTopic(query);
     if (mounted) setState(() => _isDiscovering = false);
-    
+
     final videos = ref.read(feedProvider).asData?.value.videos ?? [];
     _resetControllers(videos);
   }
@@ -153,9 +156,11 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
 
     if (!mounted) return;
     if (nextClass == null) return;
-    
+
     _topicController.clear();
-    await ref.read(feedProvider.notifier).changeClass(nextClass == guestModeValue ? null : nextClass);
+    await ref
+        .read(feedProvider.notifier)
+        .changeClass(nextClass == guestModeValue ? null : nextClass);
     final videos = ref.read(feedProvider).asData?.value.videos ?? [];
     _resetControllers(videos);
   }
@@ -181,7 +186,12 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
       ),
       error: (err, stack) => Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: Text('Error: $err', style: const TextStyle(color: Colors.white))),
+        body: Center(
+          child: Text(
+            'Error: $err',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
       ),
       data: (feedState) {
         if (feedState.selectedClass == null && feedState.guestQuery == null) {
@@ -200,7 +210,8 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
               PageView.builder(
                 controller: _pageController,
                 scrollDirection: Axis.vertical,
-                onPageChanged: (index) => _onPageChanged(index, feedState.videos),
+                onPageChanged: (index) =>
+                    _onPageChanged(index, feedState.videos),
                 itemCount: feedState.videos.length,
                 itemBuilder: (context, index) {
                   _initController(index, feedState.videos);
@@ -215,7 +226,10 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     );
   }
 
-  Widget _buildGuestTopicScreen(BuildContext context, String? currentSelectedClass) {
+  Widget _buildGuestTopicScreen(
+    BuildContext context,
+    String? currentSelectedClass,
+  ) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -282,6 +296,12 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                   height: 1.4,
                 ),
               ),
+              if (!YoutubeDiscoveryService.hasApiKey) ...[
+                const SizedBox(height: 18),
+                _buildConfigNotice(
+                  'Live YouTube discovery is not enabled in this build. Local syllabus Shorts will still open.',
+                ),
+              ],
               const SizedBox(height: 28),
               Container(
                 decoration: BoxDecoration(
@@ -305,17 +325,29 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                     hintText: 'Example: cell membrane, quadratic equations',
                     hintStyle: TextStyle(color: Colors.white.withAlpha(100)),
                     border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    prefixIcon: Icon(Icons.search, color: Colors.white.withAlpha(150)),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      color: Colors.white.withAlpha(150),
+                    ),
                     suffixIcon: IconButton(
                       onPressed: _isDiscovering ? null : _submitGuestTopic,
                       icon: _isDiscovering
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.deepPurpleAccent,
+                              ),
                             )
-                          : const Icon(Icons.arrow_forward, color: Colors.deepPurpleAccent),
+                          : const Icon(
+                              Icons.arrow_forward,
+                              color: Colors.deepPurpleAccent,
+                            ),
                     ),
                   ),
                 ),
@@ -338,7 +370,10 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   gradient: LinearGradient(
-                    colors: [Colors.deepPurpleAccent, Colors.purple.withAlpha(200)],
+                    colors: [
+                      Colors.deepPurpleAccent,
+                      Colors.purple.withAlpha(200),
+                    ],
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -372,16 +407,22 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
 
   Widget _buildTopicSuggestion(String topic, int index) {
     return ActionChip(
-      label: Text(topic, style: const TextStyle(fontWeight: FontWeight.w600)),
-      avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
-      backgroundColor: const Color(0xFF2A2A2A),
-      side: const BorderSide(color: Color(0xFF444444)),
-      labelStyle: const TextStyle(color: Colors.white),
-      onPressed: () {
-        _topicController.text = topic;
-        _submitGuestTopic();
-      },
-    ).animate().fade(delay: (100 * index).ms).scale(begin: const Offset(0.9, 0.9));
+          label: Text(
+            topic,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
+          backgroundColor: const Color(0xFF2A2A2A),
+          side: const BorderSide(color: Color(0xFF444444)),
+          labelStyle: const TextStyle(color: Colors.white),
+          onPressed: () {
+            _topicController.text = topic;
+            _submitGuestTopic();
+          },
+        )
+        .animate()
+        .fade(delay: (100 * index).ms)
+        .scale(begin: const Offset(0.9, 0.9));
   }
 
   Widget _buildEmptyScreen(BuildContext context, String? currentSelectedClass) {
@@ -410,7 +451,9 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Try another topic or switch class filters.',
+                YoutubeDiscoveryService.hasApiKey
+                    ? 'Try another topic or switch class filters.'
+                    : 'Live discovery is not enabled in this build. Switch class filters for local syllabus Shorts.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white.withAlpha(160)),
               ),
@@ -423,6 +466,31 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildConfigNotice(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.amber.withAlpha(26),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amber.withAlpha(90)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.key_outlined, color: Colors.amberAccent, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.white70, height: 1.35),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -483,12 +551,14 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                 label: isCompleted ? 'Done' : 'Save',
                 color: isCompleted ? Colors.tealAccent : Colors.white,
                 onTap: () async {
+                  final messenger = ScaffoldMessenger.of(context);
                   await ref.read(feedProvider.notifier).markCompleted(video);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Saved "${video.topic}" to your progress.')),
-                    );
-                  }
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text('Saved "${video.topic}" to your progress.'),
+                    ),
+                  );
                 },
               ),
               _buildActionButton(
@@ -514,7 +584,12 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
           left: 16,
           right: 76,
           bottom: 18,
-          child: _buildInfoPanel(context, video, isCompleted, feedState.completedShortIds.length),
+          child: _buildInfoPanel(
+            context,
+            video,
+            isCompleted,
+            feedState.completedShortIds.length,
+          ),
         ).animate().fade(delay: 150.ms).slideY(begin: 0.18),
       ],
     );
@@ -538,73 +613,75 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
             border: Border.all(color: Colors.white.withAlpha(35)),
           ),
           child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildMiniChip(video.className),
-              _buildMiniChip(video.subject),
-              if (video.isApiResult) _buildMiniChip('Live YouTube'),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            video.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              height: 1.1,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${video.creator} • ${video.topic}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            video.takeaway,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white70, height: 1.35),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: LinearProgressIndicator(
-                  value: (completedCount / 12).clamp(0.0, 1.0),
-                  minHeight: 7,
-                  borderRadius: BorderRadius.circular(20),
-                  backgroundColor: Colors.white.withAlpha(30),
-                  color: isCompleted ? Colors.tealAccent : Colors.amberAccent,
-                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildMiniChip(video.className),
+                  _buildMiniChip(video.subject),
+                  if (video.isApiResult) _buildMiniChip('Live YouTube'),
+                ],
               ),
-              const SizedBox(width: 10),
+              const SizedBox(height: 10),
               Text(
-                '$completedCount/12',
+                video.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                  height: 1.1,
+                  fontWeight: FontWeight.w900,
                 ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${video.creator} • ${video.topic}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                video.takeaway,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white70, height: 1.35),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      value: (completedCount / 12).clamp(0.0, 1.0),
+                      minHeight: 7,
+                      borderRadius: BorderRadius.circular(20),
+                      backgroundColor: Colors.white.withAlpha(30),
+                      color: isCompleted
+                          ? Colors.tealAccent
+                          : Colors.amberAccent,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '$completedCount/12',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
-    ),
+        ),
       ),
     );
   }
@@ -681,11 +758,12 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: subjects.length + 1,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, i) {
                       final isAll = i == 0;
-                      final label =
-                          isAll ? 'All Subjects' : subjects[i - 1].name;
+                      final label = isAll
+                          ? 'All Subjects'
+                          : subjects[i - 1].name;
                       final isSelected = feedState.selectedSubject == label;
                       return ChoiceChip(
                         label: Text(
@@ -700,11 +778,16 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                         backgroundColor: Colors.black.withAlpha(100),
                         onSelected: (val) {
                           if (val) {
-                            ref.read(feedProvider.notifier).applySyllabusFilter(
-                              subject: label,
-                              topic: 'All',
-                            );
-                            _resetControllers(feedState.videos);
+                            ref
+                                .read(feedProvider.notifier)
+                                .applySyllabusFilter(
+                                  subject: label,
+                                  topic: 'All',
+                                );
+                            final videos =
+                                ref.read(feedProvider).asData?.value.videos ??
+                                feedState.videos;
+                            _resetControllers(videos);
                           }
                         },
                       );
@@ -719,7 +802,7 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: topics.length + 1,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
                       itemBuilder: (context, i) {
                         final isAll = i == 0;
                         final label = isAll ? 'All Topics' : topics[i - 1];
@@ -728,9 +811,7 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                           label: Text(
                             label,
                             style: TextStyle(
-                              color: isSelected
-                                  ? Colors.black
-                                  : Colors.white70,
+                              color: isSelected ? Colors.black : Colors.white70,
                               fontSize: 12,
                             ),
                           ),
@@ -739,10 +820,13 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                           backgroundColor: Colors.black.withAlpha(100),
                           onSelected: (val) {
                             if (val) {
-                              ref.read(feedProvider.notifier).applySyllabusFilter(
-                                topic: label,
-                              );
-                              _resetControllers(feedState.videos);
+                              ref
+                                  .read(feedProvider.notifier)
+                                  .applySyllabusFilter(topic: label);
+                              final videos =
+                                  ref.read(feedProvider).asData?.value.videos ??
+                                  feedState.videos;
+                              _resetControllers(videos);
                             }
                           },
                         );

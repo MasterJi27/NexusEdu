@@ -61,6 +61,12 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
   }
 
   Future<void> submitGuestTopic(String query) async {
+    final previousState =
+        state.asData?.value ??
+        FeedState(
+          videos: const [],
+          completedShortIds: await LearnerProfileService.getCompletedShortIds(),
+        );
     state = const AsyncValue.loading();
 
     try {
@@ -74,18 +80,15 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
         localResults,
       ).take(10).toList();
 
-      final currentState = state.asData?.value;
-      if (currentState != null) {
-        state = AsyncValue.data(
-          currentState.copyWith(
-            videos: merged,
-            guestQuery: query,
-            clearSelectedClass: true,
-            selectedSubject: 'All',
-            selectedTopic: 'All',
-          ),
-        );
-      }
+      state = AsyncValue.data(
+        previousState.copyWith(
+          videos: merged,
+          guestQuery: query,
+          clearSelectedClass: true,
+          selectedSubject: 'All',
+          selectedTopic: 'All',
+        ),
+      );
     } catch (e, st) {
       state = AsyncValue.error(e, st);
     }

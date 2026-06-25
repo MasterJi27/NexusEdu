@@ -18,7 +18,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   Future<void> _acceptPolicy() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('privacy_accepted', true);
-    if (mounted) context.go('/onboarding');
+    if (mounted) context.go('/dashboard');
   }
 
   @override
@@ -28,13 +28,38 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F0F13),
         title: const Text('Privacy Policy'),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        automaticallyImplyLeading: !widget.isFirstTime,
+        leading: widget.isFirstTime
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => context.pop(),
+              ),
       ),
+      bottomNavigationBar: widget.isFirstTime
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: _acceptPolicy,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Accept and Continue',
+                    style: TextStyle(fontSize: 16, color: Colors.white),
+                  ),
+                ),
+              ),
+            )
+          : null,
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, widget.isFirstTime ? 96 : 16),
         children: [
           _buildSection(
             'Introduction',
@@ -110,26 +135,6 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
               ),
             ),
           ),
-          if (widget.isFirstTime) ...[
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _acceptPolicy,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Accept',
-                  style: TextStyle(fontSize: 16, color: Colors.white),
-                ),
-              ),
-            ),
-          ],
           const SizedBox(height: 32),
         ],
       ),

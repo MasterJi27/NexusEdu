@@ -68,7 +68,7 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeIndex = prefs.getInt(_themeKey) ?? 0;
+    final themeIndex = prefs.getInt(_themeKey) ?? ThemeMode.dark.index;
     _themeMode = ThemeMode.values[themeIndex];
     _examDate = prefs.getString(_examDateKey) != null
         ? DateTime.tryParse(prefs.getString(_examDateKey)!)
@@ -81,8 +81,9 @@ class AppSettings extends ChangeNotifier {
     _language = prefs.getString(_languageKey) ?? 'en';
     final notesJson = prefs.getStringList(_notesCacheKey);
     if (notesJson != null) {
-      _cachedNotes =
-          notesJson.map((e) => Map<String, dynamic>.from(_decodeJson(e))).toList();
+      _cachedNotes = notesJson
+          .map((e) => Map<String, dynamic>.from(_decodeJson(e)))
+          .toList();
     }
     final decksJson = prefs.getStringList(_flashcardDecksKey);
     if (decksJson != null) {
@@ -231,28 +232,40 @@ class AppSettings extends ChangeNotifier {
   Future<void> saveCurriculum(List<Map<String, dynamic>> data) async {
     _curriculum = data;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_curriculumKey, data.map((e) => json.encode(e)).toList());
+    await prefs.setStringList(
+      _curriculumKey,
+      data.map((e) => json.encode(e)).toList(),
+    );
     notifyListeners();
   }
 
   Future<void> saveReviewSchedule(List<Map<String, dynamic>> items) async {
     _reviewSchedule = items;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_reviewScheduleKey, items.map((e) => json.encode(e)).toList());
+    await prefs.setStringList(
+      _reviewScheduleKey,
+      items.map((e) => json.encode(e)).toList(),
+    );
     notifyListeners();
   }
 
   Future<void> saveSwarmAgentScores(List<Map<String, dynamic>> agents) async {
     _swarmAgentScores = agents;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_swarmAgentScoresKey, agents.map((e) => json.encode(e)).toList());
+    await prefs.setStringList(
+      _swarmAgentScoresKey,
+      agents.map((e) => json.encode(e)).toList(),
+    );
     notifyListeners();
   }
 
   Future<void> saveDreamJournal(List<Map<String, dynamic>> entries) async {
     _dreamJournal = entries;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_dreamJournalKey, entries.map((e) => json.encode(e)).toList());
+    await prefs.setStringList(
+      _dreamJournalKey,
+      entries.map((e) => json.encode(e)).toList(),
+    );
     notifyListeners();
   }
 
@@ -278,7 +291,9 @@ class AppSettings extends ChangeNotifier {
       return;
     }
 
-    final diff = today.difference(DateTime(lastDate.year, lastDate.month, lastDate.day)).inDays;
+    final diff = today
+        .difference(DateTime(lastDate.year, lastDate.month, lastDate.day))
+        .inDays;
     if (diff == 1) {
       _streak++;
     } else if (diff > 1) {

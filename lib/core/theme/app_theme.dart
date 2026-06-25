@@ -4,14 +4,7 @@ import 'package:nexus_edu/shared/constants/app_constants.dart';
 
 class AppTheme {
   static ThemeData get lightTheme {
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.accent,
-        brightness: Brightness.light,
-      ),
-      textTheme: GoogleFonts.outfitTextTheme(),
-    );
+    return darkTheme;
   }
 
   static ThemeData get darkTheme {
@@ -29,7 +22,10 @@ class AppTheme {
         indicatorColor: AppColors.accent,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return const TextStyle(color: Colors.white, fontWeight: FontWeight.w600);
+            return const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            );
           }
           return const TextStyle(color: Colors.white70);
         }),

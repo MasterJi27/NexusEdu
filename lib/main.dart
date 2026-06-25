@@ -29,7 +29,7 @@ import 'package:nexus_edu/features/live/presentation/screens/live_classes_screen
 import 'package:nexus_edu/features/community/presentation/screens/study_groups_screen.dart';
 import 'package:nexus_edu/features/roadmap/presentation/screens/roadmap_generator_screen.dart';
 import 'package:nexus_edu/features/scanner/presentation/screens/youtube_summary_screen.dart';
-import 'package:nexus_edu/features/gamification/presentation/screens/leaderboard_screen.dart';
+import 'package:nexus_edu/features/gamification/presentation/screens/leaderboard_screen.dart' as old_leaderboard;
 import 'package:nexus_edu/features/teacher/presentation/screens/teacher_dashboard_screen.dart';
 import 'package:nexus_edu/features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'package:nexus_edu/features/student_hub/presentation/screens/student_hub_screen.dart';
@@ -122,6 +122,13 @@ import 'package:nexus_edu/features/study_abroad/presentation/screens/study_abroa
 import 'package:nexus_edu/features/dashboard/presentation/screens/ai_agents_gallery_screen.dart';
 import 'package:nexus_edu/features/privacy_policy/presentation/screens/privacy_policy_screen.dart';
 import 'package:nexus_edu/features/settings/presentation/screens/settings_screen.dart';
+import 'package:nexus_edu/features/daily_quiz/presentation/screens/daily_quiz_screen.dart';
+import 'package:nexus_edu/features/study_timer/presentation/screens/study_timer_screen.dart';
+import 'package:nexus_edu/features/leaderboard/presentation/screens/leaderboard_screen.dart';
+import 'package:nexus_edu/features/mistake_journal/presentation/screens/mistake_journal_screen.dart';
+import 'package:nexus_edu/features/flashcards/presentation/screens/flashcard_screen.dart';
+import 'package:nexus_edu/features/monetization/presentation/screens/nexus_pro_paywall_screen.dart';
+import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -131,9 +138,12 @@ Future<void> main() async {
     debugPrint('Dotenv load skipped: $error');
   }
   await AiService.init();
+  await YoutubeDiscoveryService.init();
   await AppSettings.instance.load();
   final prefs = await SharedPreferences.getInstance();
-  initialLocation = prefs.getBool('privacy_accepted') ?? false ? '/onboarding' : '/privacy-policy';
+  initialLocation = prefs.getBool('privacy_accepted') ?? false
+      ? '/dashboard'
+      : '/privacy-policy?firstTime=1';
   runApp(const ProviderScope(child: NexusEduApp()));
 }
 
@@ -229,7 +239,7 @@ final _router = GoRouter(
     ),
     GoRoute(
       path: '/leaderboard',
-      builder: (context, state) => const LeaderboardScreen(),
+      builder: (context, state) => const old_leaderboard.LeaderboardScreen(),
     ),
     GoRoute(
       path: '/teacher-dashboard',
@@ -317,10 +327,7 @@ final _router = GoRouter(
       path: '/dream-journal',
       builder: (context, state) => const DreamJournalScreen(),
     ),
-    GoRoute(
-      path: '/dau',
-      builder: (context, state) => const DauScreen(),
-    ),
+    GoRoute(path: '/dau', builder: (context, state) => const DauScreen()),
     GoRoute(
       path: '/singularity-tutor',
       builder: (context, state) => const SingularityTutorScreen(),
@@ -393,60 +400,248 @@ final _router = GoRouter(
       path: '/self-test',
       builder: (context, state) => const SelfTestScreen(),
     ),
-    GoRoute(path: '/performance-test', builder: (context, state) => const PerformanceTestScreen()),
-    GoRoute(path: '/socratic-ai', builder: (context, state) => const SocraticAiScreen()),
-    GoRoute(path: '/debate-agent', builder: (context, state) => const DebateAgentScreen()),
-    GoRoute(path: '/exam-predictor', builder: (context, state) => const ExamPredictorScreen()),
-    GoRoute(path: '/personalized-tutor', builder: (context, state) => const PersonalizedTutorScreen()),
-    GoRoute(path: '/multi-lang-tutor', builder: (context, state) => const MultiLangTutorScreen()),
-    GoRoute(path: '/exam-strategy', builder: (context, state) => const ExamStrategyScreen()),
-    GoRoute(path: '/anxiety-coach', builder: (context, state) => const AnxietyCoachScreen()),
-    GoRoute(path: '/accountability-agent', builder: (context, state) => const AccountabilityAgentScreen()),
-    GoRoute(path: '/career-counselor', builder: (context, state) => const CareerCounselorScreen()),
-    GoRoute(path: '/parent-report', builder: (context, state) => const ParentReportScreen()),
-    GoRoute(path: '/ai-textbook', builder: (context, state) => const AiTextbookScreen()),
-    GoRoute(path: '/question-paper-gen', builder: (context, state) => const QuestionPaperGenScreen()),
-    GoRoute(path: '/lab-manual-gen', builder: (context, state) => const LabManualGenScreen()),
-    GoRoute(path: '/story-learning', builder: (context, state) => const StoryLearningScreen()),
-    GoRoute(path: '/mnemonic-gen', builder: (context, state) => const MnemonicGenScreen()),
-    GoRoute(path: '/audio-notes', builder: (context, state) => const AudioNotesScreen()),
-    GoRoute(path: '/video-script', builder: (context, state) => const VideoScriptScreen()),
-    GoRoute(path: '/cheat-sheet-gen', builder: (context, state) => const CheatSheetGenScreen()),
-    GoRoute(path: '/mind-map-gen', builder: (context, state) => const MindMapGenScreen()),
-    GoRoute(path: '/flashcard-auto-gen', builder: (context, state) => const FlashcardAutoGenScreen()),
-    GoRoute(path: '/adaptive-quiz', builder: (context, state) => const AdaptiveQuizScreen()),
-    GoRoute(path: '/voice-viva', builder: (context, state) => const VoiceVivaScreen()),
-    GoRoute(path: '/essay-evaluator', builder: (context, state) => const EssayEvaluatorScreen()),
-    GoRoute(path: '/speed-math', builder: (context, state) => const SpeedMathScreen()),
-    GoRoute(path: '/diagram-practice', builder: (context, state) => const DiagramPracticeScreen()),
-    GoRoute(path: '/concept-gap-detector', builder: (context, state) => const ConceptGapDetectorScreen()),
-    GoRoute(path: '/peer-comparison', builder: (context, state) => const PeerComparisonScreen()),
-    GoRoute(path: '/mock-interview', builder: (context, state) => const MockInterviewScreen()),
-    GoRoute(path: '/spelling-grammar', builder: (context, state) => const SpellingGrammarScreen()),
-    GoRoute(path: '/plagiarism-checker', builder: (context, state) => const PlagiarismCheckerScreen()),
-    GoRoute(path: '/learning-dna', builder: (context, state) => const LearningDnaScreen()),
-    GoRoute(path: '/performance-predictor', builder: (context, state) => const PerformancePredictorScreen()),
-    GoRoute(path: '/optimal-study-time', builder: (context, state) => const OptimalStudyTimeScreen()),
-    GoRoute(path: '/burnout-detector', builder: (context, state) => const BurnoutDetectorScreen()),
-    GoRoute(path: '/topic-mastery', builder: (context, state) => const TopicMasteryScreen()),
-    GoRoute(path: '/forgetting-curve-agent', builder: (context, state) => const ForgettingCurveAgentScreen()),
-    GoRoute(path: '/study-efficiency', builder: (context, state) => const StudyEfficiencyScreen()),
-    GoRoute(path: '/comparative-analytics', builder: (context, state) => const ComparativeAnalyticsScreen()),
-    GoRoute(path: '/long-term-memory', builder: (context, state) => const LongTermMemoryScreen()),
-    GoRoute(path: '/exam-readiness', builder: (context, state) => const ExamReadinessScreen()),
-    GoRoute(path: '/lab-simulator', builder: (context, state) => const LabSimulatorScreen()),
-    GoRoute(path: '/historical-travel', builder: (context, state) => const HistoricalTravelScreen()),
-    GoRoute(path: '/math-word-solver', builder: (context, state) => const MathWordSolverScreen()),
-    GoRoute(path: '/science-explainer', builder: (context, state) => const ScienceExplainerScreen()),
-    GoRoute(path: '/writing-coach', builder: (context, state) => const WritingCoachScreen()),
-    GoRoute(path: '/language-exchange', builder: (context, state) => const LanguageExchangeScreen()),
-    GoRoute(path: '/group-study-mod', builder: (context, state) => const GroupStudyModScreen()),
-    GoRoute(path: '/project-guide', builder: (context, state) => const ProjectGuideScreen()),
-    GoRoute(path: '/college-app-writer', builder: (context, state) => const CollegeAppWriterScreen()),
-    GoRoute(path: '/study-abroad', builder: (context, state) => const StudyAbroadScreen()),
-    GoRoute(path: '/ai-agents', builder: (context, state) => const AiAgentsGalleryScreen()),
-    GoRoute(path: '/privacy-policy', builder: (context, state) => const PrivacyPolicyScreen(isFirstTime: true)),
-    GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+    GoRoute(
+      path: '/performance-test',
+      builder: (context, state) => const PerformanceTestScreen(),
+    ),
+    GoRoute(
+      path: '/socratic-ai',
+      builder: (context, state) => const SocraticAiScreen(),
+    ),
+    GoRoute(
+      path: '/debate-agent',
+      builder: (context, state) => const DebateAgentScreen(),
+    ),
+    GoRoute(
+      path: '/exam-predictor',
+      builder: (context, state) => const ExamPredictorScreen(),
+    ),
+    GoRoute(
+      path: '/personalized-tutor',
+      builder: (context, state) => const PersonalizedTutorScreen(),
+    ),
+    GoRoute(
+      path: '/multi-lang-tutor',
+      builder: (context, state) => const MultiLangTutorScreen(),
+    ),
+    GoRoute(
+      path: '/exam-strategy',
+      builder: (context, state) => const ExamStrategyScreen(),
+    ),
+    GoRoute(
+      path: '/anxiety-coach',
+      builder: (context, state) => const AnxietyCoachScreen(),
+    ),
+    GoRoute(
+      path: '/accountability-agent',
+      builder: (context, state) => const AccountabilityAgentScreen(),
+    ),
+    GoRoute(
+      path: '/career-counselor',
+      builder: (context, state) => const CareerCounselorScreen(),
+    ),
+    GoRoute(
+      path: '/parent-report',
+      builder: (context, state) => const ParentReportScreen(),
+    ),
+    GoRoute(
+      path: '/ai-textbook',
+      builder: (context, state) => const AiTextbookScreen(),
+    ),
+    GoRoute(
+      path: '/question-paper-gen',
+      builder: (context, state) => const QuestionPaperGenScreen(),
+    ),
+    GoRoute(
+      path: '/lab-manual-gen',
+      builder: (context, state) => const LabManualGenScreen(),
+    ),
+    GoRoute(
+      path: '/story-learning',
+      builder: (context, state) => const StoryLearningScreen(),
+    ),
+    GoRoute(
+      path: '/mnemonic-gen',
+      builder: (context, state) => const MnemonicGenScreen(),
+    ),
+    GoRoute(
+      path: '/audio-notes',
+      builder: (context, state) => const AudioNotesScreen(),
+    ),
+    GoRoute(
+      path: '/video-script',
+      builder: (context, state) => const VideoScriptScreen(),
+    ),
+    GoRoute(
+      path: '/cheat-sheet-gen',
+      builder: (context, state) => const CheatSheetGenScreen(),
+    ),
+    GoRoute(
+      path: '/mind-map-gen',
+      builder: (context, state) => const MindMapGenScreen(),
+    ),
+    GoRoute(
+      path: '/flashcard-auto-gen',
+      builder: (context, state) => const FlashcardAutoGenScreen(),
+    ),
+    GoRoute(
+      path: '/adaptive-quiz',
+      builder: (context, state) => const AdaptiveQuizScreen(),
+    ),
+    GoRoute(
+      path: '/voice-viva',
+      builder: (context, state) => const VoiceVivaScreen(),
+    ),
+    GoRoute(
+      path: '/essay-evaluator',
+      builder: (context, state) => const EssayEvaluatorScreen(),
+    ),
+    GoRoute(
+      path: '/speed-math',
+      builder: (context, state) => const SpeedMathScreen(),
+    ),
+    GoRoute(
+      path: '/diagram-practice',
+      builder: (context, state) => const DiagramPracticeScreen(),
+    ),
+    GoRoute(
+      path: '/concept-gap-detector',
+      builder: (context, state) => const ConceptGapDetectorScreen(),
+    ),
+    GoRoute(
+      path: '/peer-comparison',
+      builder: (context, state) => const PeerComparisonScreen(),
+    ),
+    GoRoute(
+      path: '/mock-interview',
+      builder: (context, state) => const MockInterviewScreen(),
+    ),
+    GoRoute(
+      path: '/spelling-grammar',
+      builder: (context, state) => const SpellingGrammarScreen(),
+    ),
+    GoRoute(
+      path: '/plagiarism-checker',
+      builder: (context, state) => const PlagiarismCheckerScreen(),
+    ),
+    GoRoute(
+      path: '/learning-dna',
+      builder: (context, state) => const LearningDnaScreen(),
+    ),
+    GoRoute(
+      path: '/performance-predictor',
+      builder: (context, state) => const PerformancePredictorScreen(),
+    ),
+    GoRoute(
+      path: '/optimal-study-time',
+      builder: (context, state) => const OptimalStudyTimeScreen(),
+    ),
+    GoRoute(
+      path: '/burnout-detector',
+      builder: (context, state) => const BurnoutDetectorScreen(),
+    ),
+    GoRoute(
+      path: '/topic-mastery',
+      builder: (context, state) => const TopicMasteryScreen(),
+    ),
+    GoRoute(
+      path: '/forgetting-curve-agent',
+      builder: (context, state) => const ForgettingCurveAgentScreen(),
+    ),
+    GoRoute(
+      path: '/study-efficiency',
+      builder: (context, state) => const StudyEfficiencyScreen(),
+    ),
+    GoRoute(
+      path: '/comparative-analytics',
+      builder: (context, state) => const ComparativeAnalyticsScreen(),
+    ),
+    GoRoute(
+      path: '/long-term-memory',
+      builder: (context, state) => const LongTermMemoryScreen(),
+    ),
+    GoRoute(
+      path: '/exam-readiness',
+      builder: (context, state) => const ExamReadinessScreen(),
+    ),
+    GoRoute(
+      path: '/lab-simulator',
+      builder: (context, state) => const LabSimulatorScreen(),
+    ),
+    GoRoute(
+      path: '/historical-travel',
+      builder: (context, state) => const HistoricalTravelScreen(),
+    ),
+    GoRoute(
+      path: '/math-word-solver',
+      builder: (context, state) => const MathWordSolverScreen(),
+    ),
+    GoRoute(
+      path: '/science-explainer',
+      builder: (context, state) => const ScienceExplainerScreen(),
+    ),
+    GoRoute(
+      path: '/writing-coach',
+      builder: (context, state) => const WritingCoachScreen(),
+    ),
+    GoRoute(
+      path: '/language-exchange',
+      builder: (context, state) => const LanguageExchangeScreen(),
+    ),
+    GoRoute(
+      path: '/group-study-mod',
+      builder: (context, state) => const GroupStudyModScreen(),
+    ),
+    GoRoute(
+      path: '/project-guide',
+      builder: (context, state) => const ProjectGuideScreen(),
+    ),
+    GoRoute(
+      path: '/college-app-writer',
+      builder: (context, state) => const CollegeAppWriterScreen(),
+    ),
+    GoRoute(
+      path: '/study-abroad',
+      builder: (context, state) => const StudyAbroadScreen(),
+    ),
+    GoRoute(
+      path: '/ai-agents',
+      builder: (context, state) => const AiAgentsGalleryScreen(),
+    ),
+    GoRoute(
+      path: '/privacy-policy',
+      builder: (context, state) => PrivacyPolicyScreen(
+        isFirstTime: state.uri.queryParameters['firstTime'] == '1',
+      ),
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
+      path: '/daily-quiz',
+      builder: (context, state) => const DailyQuizScreen(),
+    ),
+    GoRoute(
+      path: '/study-timer',
+      builder: (context, state) => const StudyTimerScreen(),
+    ),
+    GoRoute(
+      path: '/mistake-journal',
+      builder: (context, state) => const MistakeJournalScreen(),
+    ),
+    GoRoute(
+      path: '/flashcards-new',
+      builder: (context, state) => const FlashcardScreen(),
+    ),
+    GoRoute(
+      path: '/search',
+      builder: (context, state) => const AiFeedScreen(),
+    ),
+    GoRoute(
+      path: '/pro',
+      builder: (context, state) => const NexusProPaywallScreen(),
+    ),
   ],
 );
 

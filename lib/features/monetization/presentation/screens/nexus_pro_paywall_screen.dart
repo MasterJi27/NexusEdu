@@ -1,73 +1,246 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:nexus_edu/core/data/monetization_catalog.dart';
 
 class NexusProPaywallScreen extends StatelessWidget {
   const NexusProPaywallScreen({super.key});
 
+  static const Color _bg = Color(0xFF0F1115);
+  static const Color _accent = Color(0xFF7C5CFF);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0C29),
-      appBar: AppBar(title: const Text('Go Pro', style: TextStyle(color: Colors.white)), backgroundColor: Colors.transparent, iconTheme: const IconThemeData(color: Colors.white)),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(colors: [Color(0xFF0F0C29), Color(0xFF302B63), Color(0xFF24243E)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.workspace_premium, color: Colors.amberAccent, size: 80).animate(onPlay: (c) => c.repeat(reverse: true)).scaleXY(end: 1.1),
-            const SizedBox(height: 16),
-            const Text('Nexus Pro', style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 2)),
-            const Text('Unlock your true potential.', style: TextStyle(color: Colors.white70, fontSize: 16)),
-            const SizedBox(height: 48),
-            _buildFeatureRow('Unlimited AI Tutor Chat'),
-            _buildFeatureRow('Offline Vault Access'),
-            _buildFeatureRow('Advanced Spaced Repetition Analytics'),
-            _buildFeatureRow('Zero Ads. Pure Focus.'),
-            const SizedBox(height: 48),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(color: Colors.white.withAlpha(20), borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.amberAccent.withAlpha(50))),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Annual Plan', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text('Save 40%', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                  ]),
-                  Text('₹999 / yr', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
-                ],
+      backgroundColor: _bg,
+      appBar: AppBar(
+        title: const Text('Nexus Pro'),
+        backgroundColor: _bg,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        children: [
+          const Text(
+            'Upgrade only when you need more depth.',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              height: 1.1,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Core studying stays free. Pro is for heavy AI tutor use, exam reports, and distraction-free revision.',
+            style: TextStyle(color: Colors.white70, height: 1.4),
+          ),
+          const SizedBox(height: 20),
+          for (final plan in MonetizationCatalog.plans) _PlanCard(plan: plan),
+          const SizedBox(height: 20),
+          const Text(
+            'What goes where',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (final tier in AccessTier.values)
+            _TierSection(
+              tier: tier,
+              features: MonetizationCatalog.features
+                  .where((feature) => feature.tier == tier)
+                  .toList(),
+            ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: FilledButton(
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Billing will connect after Play Console product setup.',
+                  ),
+                ),
+              );
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: _accent,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
-            ).animate().slideY(begin: 0.2).fade(),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amberAccent,
-                foregroundColor: Colors.black,
-                fixedSize: const Size(300, 60),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-              ),
-              child: const Text('UPGRADE NOW', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-            ).animate().scale(delay: 500.ms),
-          ],
+            ),
+            child: const Text(
+              'Continue with Pro Student',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildFeatureRow(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0, left: 40),
-      child: Row(
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({required this.plan});
+
+  final PricingPlan plan;
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFF7C5CFF);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF171A21),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: plan.recommended ? accent : const Color(0xFF2A2F3A),
+          width: plan.recommended ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.check_circle, color: Colors.greenAccent),
-          const SizedBox(width: 16),
-          Text(text, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  plan.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (plan.recommended)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: accent.withAlpha(35),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'Best value',
+                    style: TextStyle(color: accent, fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                plan.price,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Text(
+                  plan.subtitle,
+                  style: const TextStyle(color: Colors.white60),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final feature in plan.features)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 7),
+              child: Row(
+                children: [
+                  const Icon(Icons.check, color: Color(0xFF55D6A4), size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      feature,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
-    ).animate().slideX(begin: -0.1).fade();
+    );
+  }
+}
+
+class _TierSection extends StatelessWidget {
+  const _TierSection({required this.tier, required this.features});
+
+  final AccessTier tier;
+  final List<MonetizationFeature> features;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = switch (tier) {
+      AccessTier.free => 'Free',
+      AccessTier.pro => 'Paid Pro',
+      AccessTier.sponsored => 'Sponsored',
+    };
+    final color = switch (tier) {
+      AccessTier.free => const Color(0xFF55D6A4),
+      AccessTier.pro => const Color(0xFF7C5CFF),
+      AccessTier.sponsored => const Color(0xFFFFC857),
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF171A21),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF2A2F3A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final feature in features)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(feature.icon, color: color),
+              title: Text(
+                feature.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              subtitle: Text(
+                feature.description,
+                style: const TextStyle(color: Colors.white60),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
