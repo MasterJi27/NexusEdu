@@ -85,7 +85,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
           ),
           _buildSection(
             'Contact',
-            'If you have any questions or concerns regarding this Privacy Policy, please reach out:\n\nDeveloper: Ragha\nEmail: (add email in settings)',
+            'If you have any questions or concerns regarding this Privacy Policy, please reach out:\n\nDeveloper: Ragha\nEmail: Raghavkathuria@devflow.me',
           ),
           const SizedBox(height: 8),
           const Text(
