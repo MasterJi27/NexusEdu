@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
+import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -114,6 +115,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
     controller.dispose();
   }
 
+  void _showExamDatePicker() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: AppSettings.instance.examDate ?? DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (date != null && mounted) {
+      final nameController = TextEditingController(text: AppSettings.instance.examName);
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Exam Name'),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(hintText: 'e.g. JEE Main'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                AppSettings.instance.setExamDate(date, nameController.text);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,21 +180,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
                 children: [
-                  _buildProfileHeader(
-                    context,
-                  ).animate().fade().slideY(begin: -0.08),
+                  _buildProfileHeader(context).animate().fade().slideY(begin: -0.08),
+                  const SizedBox(height: 18),
+                  _buildStreakCard().animate().fade(delay: 60.ms),
                   const SizedBox(height: 18),
                   _buildClassCard(context).animate().fade(delay: 100.ms),
                   const SizedBox(height: 18),
                   _buildStatsSection(context).animate().fade(delay: 180.ms),
                   const SizedBox(height: 24),
-                  _buildCertificatesSection(
-                    context,
-                  ).animate().fade(delay: 260.ms),
+                  _buildThemeSection().animate().fade(delay: 220.ms),
                   const SizedBox(height: 24),
-                  _buildAchievementsSection(
-                    context,
-                  ).animate().fade(delay: 340.ms),
+                  _buildExamCountdownCard().animate().fade(delay: 260.ms),
+                  const SizedBox(height: 24),
+                  _buildCertificatesSection(context).animate().fade(delay: 300.ms),
+                  const SizedBox(height: 24),
+                  _buildAchievementsSection(context).animate().fade(delay: 340.ms),
                   const SizedBox(height: 24),
                   _buildRecentActivity(context).animate().fade(delay: 420.ms),
                 ],
@@ -218,9 +251,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   _buildStatusPill(
                     _selectedClass ?? 'Guest mode',
-                    _selectedClass == null
-                        ? Icons.person_outline
-                        : Icons.school,
+                    _selectedClass == null ? Icons.person_outline : Icons.school,
                     Colors.deepPurpleAccent,
                   ),
                   _buildStatusPill(
@@ -237,14 +268,199 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _buildStreakCard() {
+    final streak = AppSettings.instance.streak;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orange.withAlpha(40), Colors.deepOrange.withAlpha(20)],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.orange.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            height: 50,
+            width: 50,
+            decoration: BoxDecoration(
+              color: Colors.orange.withAlpha(30),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.local_fire_department, color: Colors.orange, size: 28),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$streak Day Streak',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  streak == 0
+                      ? 'Start studying today!'
+                      : streak >= 7
+                          ? 'Amazing consistency!'
+                          : 'Keep it going!',
+                  style: TextStyle(color: Theme.of(context).hintColor, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '$streak',
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: Colors.orange,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeSection() {
+    final settings = AppSettings.instance;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(135),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Theme.of(context).dividerColor.withAlpha(40)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Appearance',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          ...ThemeMode.values.map((mode) {
+            final labels = {ThemeMode.system: 'System', ThemeMode.light: 'Light', ThemeMode.dark: 'Dark'};
+            final icons = {ThemeMode.system: Icons.brightness_auto, ThemeMode.light: Icons.light_mode, ThemeMode.dark: Icons.dark_mode};
+            return RadioListTile<ThemeMode>(
+              contentPadding: EdgeInsets.zero,
+              title: Text(labels[mode]!),
+              secondary: Icon(icons[mode]),
+              value: mode,
+              groupValue: settings.themeMode,
+              onChanged: (v) {
+                if (v != null) settings.setThemeMode(v);
+              },
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExamCountdownCard() {
+    final examDate = AppSettings.instance.examDate;
+    final examName = AppSettings.instance.examName;
+    if (examDate == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(135),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Theme.of(context).dividerColor.withAlpha(40)),
+        ),
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            height: 46,
+            width: 46,
+            decoration: BoxDecoration(
+              color: Colors.purpleAccent.withAlpha(30),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.event, color: Colors.purpleAccent),
+          ),
+          title: const Text('Set Exam Target'),
+          subtitle: const Text('Add a countdown to stay motivated'),
+          trailing: FilledButton.tonal(
+            onPressed: _showExamDatePicker,
+            child: const Text('Set Date'),
+          ),
+        ),
+      );
+    }
+
+    final daysLeft = examDate.difference(DateTime.now()).inDays;
+    final color = daysLeft <= 7 ? Colors.redAccent : daysLeft <= 30 ? Colors.orange : Colors.teal;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withAlpha(30), color.withAlpha(10)],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            height: 50,
+            width: 50,
+            decoration: BoxDecoration(
+              color: color.withAlpha(30),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.event, color: color, size: 26),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  examName,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  daysLeft <= 0 ? 'Today!' : '$daysLeft days remaining',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            children: [
+              Text(
+                '$daysLeft',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
+              const Text('days', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => AppSettings.instance.clearExamDate(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildClassCard(BuildContext context) {
     final subjects = LearningCatalog.subjectsFor(_selectedClass);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withAlpha(135),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(135),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Theme.of(context).dividerColor.withAlpha(40)),
       ),
@@ -272,10 +488,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     Text(
                       _selectedClass ?? 'Guest learning',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 3),
                     Text(
@@ -329,11 +542,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final items = [
       _StatItem('120', 'Notes Scanned', Icons.document_scanner),
       _StatItem('45', 'Flashcards', Icons.swipe),
-      _StatItem(
-        '${_completedShorts.length}',
-        'Shorts Done',
-        Icons.check_circle,
-      ),
+      _StatItem('${_completedShorts.length}', 'Shorts Done', Icons.check_circle),
       _StatItem('3', 'Certificates', Icons.workspace_premium),
     ];
 
@@ -357,10 +566,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Icon(
-                item.icon,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+              child: Icon(item.icon, color: Theme.of(context).colorScheme.primary),
             ),
             const SizedBox(height: 8),
             Text(
@@ -391,10 +597,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Row(
           children: [
-            const Text(
-              'Certifications',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
+            const Text('Certifications', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Spacer(),
             TextButton.icon(
               onPressed: () => context.go('/feed'),
@@ -411,55 +614,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
             itemCount: certificates.length,
             separatorBuilder: (_, _) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
-              final certificate = certificates[index];
+              final c = certificates[index];
               return Container(
                 width: 230,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: certificate.color.withAlpha(22),
+                  color: c.color.withAlpha(22),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: certificate.color.withAlpha(80)),
+                  border: Border.all(color: c.color.withAlpha(80)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Icon(certificate.icon, color: certificate.color),
+                        Icon(c.icon, color: c.color),
                         const Spacer(),
-                        Text(
-                          '${(certificate.progress * 100).round()}%',
-                          style: TextStyle(
-                            color: certificate.color,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        Text('${(c.progress * 100).round()}%', style: TextStyle(color: c.color, fontWeight: FontWeight.bold)),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      certificate.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    Text(c.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 5),
-                    Text(
-                      certificate.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Theme.of(context).hintColor),
-                    ),
+                    Text(c.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Theme.of(context).hintColor)),
                     const Spacer(),
                     LinearProgressIndicator(
-                      value: certificate.progress,
+                      value: c.progress,
                       minHeight: 7,
                       borderRadius: BorderRadius.circular(20),
-                      backgroundColor: certificate.color.withAlpha(35),
-                      color: certificate.color,
+                      backgroundColor: c.color.withAlpha(35),
+                      color: c.color,
                     ),
                   ],
                 ),
@@ -475,18 +659,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Badges',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        const Text('Badges', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 14),
         Row(
           children: [
-            _buildBadge(
-              Icons.local_fire_department,
-              '7 Day Streak',
-              Colors.orange,
-            ),
+            _buildBadge(Icons.local_fire_department, '7 Day Streak', Colors.orange),
             const SizedBox(width: 14),
             _buildBadge(Icons.psychology, 'Top 5% Thinker', Colors.purple),
             const SizedBox(width: 14),
@@ -516,35 +693,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildRecentActivity(BuildContext context) {
     final activities = [
-      _ActivityItem(
-        Icons.check,
-        Colors.tealAccent,
-        'Mastered Big O Notation',
-        '2 hours ago',
-      ),
-      _ActivityItem(
-        Icons.smart_display,
-        Colors.redAccent,
-        _selectedClass == null
-            ? 'Used Guest Shorts by topic'
-            : 'Watched $_selectedClass syllabus Shorts',
-        'Today',
-      ),
-      _ActivityItem(
-        Icons.chat,
-        Colors.blueAccent,
-        'Chatted with AI Tutor',
-        'Yesterday',
-      ),
+      _ActivityItem(Icons.check, Colors.tealAccent, 'Mastered Big O Notation', '2 hours ago'),
+      _ActivityItem(Icons.smart_display, Colors.redAccent, _selectedClass == null ? 'Used Guest Shorts by topic' : 'Watched $_selectedClass syllabus Shorts', 'Today'),
+      _ActivityItem(Icons.chat, Colors.blueAccent, 'Chatted with AI Tutor', 'Yesterday'),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Recent Activity',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        const Text('Recent Activity', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
         for (final activity in activities)
           ListTile(
@@ -573,14 +730,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -589,7 +739,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
 class _StatItem {
   const _StatItem(this.value, this.label, this.icon);
-
   final String value;
   final String label;
   final IconData icon;
@@ -597,7 +746,6 @@ class _StatItem {
 
 class _ActivityItem {
   const _ActivityItem(this.icon, this.color, this.title, this.subtitle);
-
   final IconData icon;
   final Color color;
   final String title;

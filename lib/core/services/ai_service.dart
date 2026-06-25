@@ -7,30 +7,41 @@ import 'dart:convert';
 class AiService {
   static String? _apiKey;
   static GenerativeModel? _model;
+  static GenerativeModel? _visionModel;
   static ChatSession? _chatSession;
   static ChatSession? _socraticSession;
 
-  static Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    _apiKey = prefs.getString('gemini_api_key') ?? dotenv.env['GEMINI_API_KEY'];
-    _apiKey = _apiKey?.trim();
+  static void _initModels() {
     if (_apiKey != null &&
         _apiKey!.isNotEmpty &&
         _apiKey != 'your_api_key_here') {
       try {
-        _model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: _apiKey!);
+        _model = GenerativeModel(model: 'gemini-2.0-flash', apiKey: _apiKey!);
+        _visionModel = GenerativeModel(
+          model: 'gemini-2.5-flash',
+          apiKey: _apiKey!,
+        );
         _chatSession = _model!.startChat();
         _socraticSession = null;
       } catch (e) {
         _model = null;
+        _visionModel = null;
         _chatSession = null;
         _socraticSession = null;
       }
     } else {
       _model = null;
+      _visionModel = null;
       _chatSession = null;
       _socraticSession = null;
     }
+  }
+
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _apiKey = prefs.getString('gemini_api_key') ?? dotenv.env['GEMINI_API_KEY'];
+    _apiKey = _apiKey?.trim();
+    _initModels();
   }
 
   static Future<void> saveApiKey(String key) async {
@@ -38,23 +49,7 @@ class AiService {
     final trimmedKey = key.trim();
     await prefs.setString('gemini_api_key', trimmedKey);
     _apiKey = trimmedKey;
-    if (_apiKey != null &&
-        _apiKey!.isNotEmpty &&
-        _apiKey != 'your_api_key_here') {
-      try {
-        _model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: _apiKey!);
-        _chatSession = _model!.startChat();
-        _socraticSession = null;
-      } catch (e) {
-        _model = null;
-        _chatSession = null;
-        _socraticSession = null;
-      }
-    } else {
-      _model = null;
-      _chatSession = null;
-      _socraticSession = null;
-    }
+    _initModels();
   }
 
   static String? get apiKey => _apiKey;
@@ -182,19 +177,117 @@ class AiService {
     }
   }
 
+  static Future<String> generateCurriculum(String subject) async {
+    if (!_isReady) return _noKeyError;
+    try {
+      final response = await _model!.generateContent([
+        Content.text(
+          "You are a self-assembling curriculum AI. For the subject '$subject', "
+          "generate a JSON array of 8 learning topics. Each topic must have: "
+          "\"title\" (string), \"summary\" (string, 2 sentences), "
+          "\"difficulty\" (string, one of: Beginner/Intermediate/Advanced), "
+          "\"estimatedMinutes\" (int), \"emerging\" (bool — true if this is a cutting-edge topic). "
+          "Raw JSON only, no markdown, no code fences.",
+        ),
+      ]);
+      return response.text ?? '[]';
+    } catch (e) {
+      return 'API Error: $e';
+    }
+  }
+
+  static Future<String> generateCurriculumContent(String topic) async {
+    if (!_isReady) return _noKeyError;
+    try {
+      final response = await _model!.generateContent([
+        Content.text(
+          "Generate comprehensive study content for the topic '$topic'. "
+          "Include: key concepts, real-world applications, and 3 quiz questions with answers. "
+          "Format in markdown.",
+        ),
+      ]);
+      return response.text ?? 'Failed to generate content.';
+    } catch (e) {
+      return 'API Error: $e';
+    }
+  }
+
+  static Future<Map<String, String>> swarmTeach(
+    String concept, String strategy, String persona,
+  ) async {
+    if (!_isReady) return {'lesson': _noKeyError, 'quiz': ''};
+    try {
+      final lessonResp = await _model!.generateContent([
+        Content.text(
+          "You are Agent '$persona', a teaching AI with a $strategy strategy. "
+          "Teach the concept '$concept' in exactly 4 sentences using your strategy. "
+          "Be concise and distinctive in your approach.",
+        ),
+      ]);
+      final quizResp = await _model!.generateContent([
+        Content.text(
+          "Based on this explanation of '$concept', generate exactly one MCQ with 4 options (A-D). "
+          "Format:\nQuestion?\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: LETTER",
+        ),
+      ]);
+      return {
+        'lesson': lessonResp.text ?? 'No lesson generated.',
+        'quiz': quizResp.text ?? 'No quiz generated.',
+      };
+    } catch (e) {
+      return {'lesson': 'API Error: $e', 'quiz': ''};
+    }
+  }
+
+  static Future<String> generateFlashcards(String topic) async {
+    if (!_isReady) return _noKeyError;
+    try {
+      final response = await _model!.generateContent([
+        Content.text(
+          "Generate 10 flashcards for the topic: '$topic'. "
+          "Return a JSON array of objects. Each object must have exactly two keys: "
+          "\"front\" (string, the question/term) and \"back\" (string, the answer/definition). "
+          "No markdown, no code fences. Raw JSON only.",
+        ),
+      ]);
+      return response.text ?? '[]';
+    } catch (e) {
+      return 'API Error: $e';
+    }
+  }
+
+  static String _detectMimeType(Uint8List bytes) {
+    if (bytes.length >= 4) {
+      if (bytes[0] == 0xFF && bytes[1] == 0xD8) return 'image/jpeg';
+      if (bytes[0] == 0x89 && bytes[1] == 0x50) return 'image/png';
+      if (bytes[0] == 0x47 && bytes[1] == 0x49) return 'image/gif';
+      if (bytes[0] == 0x52 && bytes[1] == 0x49) return 'image/webp';
+    }
+    return 'image/jpeg';
+  }
+
   static Future<String> analyzeImage(
     Uint8List imageBytes,
     String prompt,
   ) async {
-    if (!_isReady) return _noKeyError;
-    try {
-      final response = await _model!.generateContent([
-        Content.multi([TextPart(prompt), DataPart('image/jpeg', imageBytes)]),
-      ]);
-      return response.text ?? 'Failed to analyze image.';
-    } catch (e) {
-      return 'API Error: $e';
+    final mimeType = _detectMimeType(imageBytes);
+    GenerativeModel? tryModel;
+
+    for (final model in [_visionModel, _model]) {
+      if (model == null) continue;
+      tryModel = model;
+      try {
+        final response = await tryModel.generateContent([
+          Content.multi([TextPart(prompt), DataPart(mimeType, imageBytes)]),
+        ]);
+        if (response.text != null) return response.text!;
+      } catch (_) {
+        continue;
+      }
     }
+
+    if (!_isReady) return _noKeyError;
+    return 'Image analysis failed: your API key may not support vision models. Go to Profile to update your API key.';
   }
 
   static Future<List<Map<String, dynamic>>> generateMemoryPalace(

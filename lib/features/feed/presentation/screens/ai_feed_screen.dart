@@ -332,6 +332,7 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                 ],
               ),
               const Spacer(),
+              const SizedBox(height: 80),
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -373,8 +374,8 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     return ActionChip(
       label: Text(topic, style: const TextStyle(fontWeight: FontWeight.w600)),
       avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
-      backgroundColor: Colors.white.withAlpha(20),
-      side: BorderSide(color: Colors.white.withAlpha(30)),
+      backgroundColor: const Color(0xFF2A2A2A),
+      side: const BorderSide(color: Color(0xFF444444)),
       labelStyle: const TextStyle(color: Colors.white),
       onPressed: () {
         _topicController.text = topic;
@@ -756,41 +757,11 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     );
   }
 
-  Widget _buildFilterChip({
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-    IconData? icon,
-    Color? color,
-    bool dense = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        avatar: icon == null ? null : Icon(icon, size: dense ? 14 : 16),
-        selected: selected,
-        onSelected: (_) => onTap(),
-        visualDensity: dense ? VisualDensity.compact : VisualDensity.standard,
-        selectedColor: (color ?? Colors.deepPurpleAccent).withAlpha(200),
-        backgroundColor: Colors.white.withAlpha(25),
-        labelStyle: TextStyle(
-          color: selected ? Colors.white : Colors.white60,
-          fontWeight: FontWeight.w700,
-          fontSize: dense ? 12 : 13,
-        ),
-        side: BorderSide(color: selected ? (color ?? Colors.deepPurpleAccent).withAlpha(150) : Colors.white.withAlpha(20)),
-        elevation: selected ? 4 : 0,
-        shadowColor: color?.withAlpha(100) ?? Colors.deepPurpleAccent.withAlpha(100),
-      ),
-    );
-  }
-
   Widget _buildMiniChip(String label) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(34),
+        color: Colors.white.withAlpha(50),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
