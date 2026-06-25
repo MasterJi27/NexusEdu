@@ -5,6 +5,7 @@ import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -133,6 +134,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ).animate().fade(delay: 340.ms),
                   const SizedBox(height: 24),
                   _buildRecentActivity(context).animate().fade(delay: 420.ms),
+                  const SizedBox(height: 24),
+                  _buildLogoutButton(context).animate().fade(delay: 460.ms),
                 ],
               ),
             ),
@@ -815,4 +818,48 @@ class _ActivityItem {
   final Color color;
   final String title;
   final String subtitle;
+}
+
+Widget _buildLogoutButton(BuildContext context) {
+  return GestureDetector(
+    onTap: () async {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E2E),
+          title: const Text('Logout', style: TextStyle(color: Colors.white)),
+          content: const Text('Are you sure you want to logout?', style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Logout', style: TextStyle(color: Colors.redAccent)),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true && context.mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_logged_in', false);
+        if (context.mounted) context.go('/login');
+      }
+    },
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withAlpha(15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.redAccent.withAlpha(40)),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.logout, color: Colors.redAccent, size: 20),
+          SizedBox(width: 8),
+          Text('Logout', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+    ),
+  );
 }

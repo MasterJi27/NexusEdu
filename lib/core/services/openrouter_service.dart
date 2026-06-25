@@ -8,7 +8,7 @@ class OpenRouterService {
   OpenRouterService._();
 
   static const String _baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
-  static const String _model = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+  static const String _model = 'deepseek/deepseek-chat-v4-flash:free';
   String? _apiKey;
 
   bool get isReady => _apiKey != null && _apiKey!.isNotEmpty;
@@ -19,6 +19,11 @@ class OpenRouterService {
 
   Future<String> chat(String prompt, {String systemPrompt = ''}) async {
     if (!isReady) return 'API key not configured.';
+
+    final sanitized = _sanitizeInput(prompt);
+    if (sanitized == null) {
+      return 'Your message was flagged for safety. Please rephrase your question.';
+    }
 
     try {
       final messages = <Map<String, String>>[];
@@ -38,10 +43,10 @@ class OpenRouterService {
         body: jsonEncode({
           'model': _model,
           'messages': messages,
-          'max_tokens': 2048,
+          'max_tokens': 1024,
           'temperature': 0.7,
         }),
-      );
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -197,5 +202,47 @@ class OpenRouterService {
         '- Translating content\n'
         '- Evaluating essays\n\n'
         'Ask me anything about your studies!';
+  }
+
+  String? _sanitizeInput(String input) {
+    final lower = input.toLowerCase();
+
+    final blockedPatterns = [
+      'ignore previous instructions',
+      'ignore all instructions',
+      'ignore above instructions',
+      'ignore the above',
+      'ignore the previous',
+      'ignore your instructions',
+      'disregard previous',
+      'disregard all',
+      'forget everything',
+      'forget your instructions',
+      'you are now',
+      'act as if',
+      'pretend you are',
+      'new instructions:',
+      'system prompt:',
+      'reveal system prompt',
+      'show system prompt',
+      'what are your instructions',
+      'override safety',
+      'bypass filters',
+      'jailbreak',
+      'developer mode',
+      'sudo',
+      'admin mode',
+    ];
+
+    for (final pattern in blockedPatterns) {
+      if (lower.contains(pattern)) return null;
+    }
+
+    final cleanInput = input.replaceAll(RegExp(r'[^a-zA-Z0-9\s.,!?;()+*/=<>]'), '');
+    if (cleanInput.length > 2000) {
+      return cleanInput.substring(0, 2000);
+    }
+
+    return cleanInput;
   }
 }

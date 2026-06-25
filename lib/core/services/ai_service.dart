@@ -6,7 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 class AiService {
   static String? _apiKey;
   static const String _baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
-  static const String _model = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+  static const String _model = 'deepseek/deepseek-chat-v4-flash:free';
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();

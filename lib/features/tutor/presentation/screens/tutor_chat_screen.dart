@@ -281,7 +281,7 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
                 _buildToolChip(
                   Icons.lightbulb_outline,
                   'Simple',
-                  'Explain this topic with a simple Hinglish analogy.',
+                  'Explain this topic with a simple analogy.',
                 ),
                 _buildToolChip(
                   Icons.child_care,

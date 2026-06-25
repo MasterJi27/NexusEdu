@@ -127,6 +127,9 @@ import 'package:nexus_edu/features/study_timer/presentation/screens/study_timer_
 import 'package:nexus_edu/features/leaderboard/presentation/screens/leaderboard_screen.dart';
 import 'package:nexus_edu/features/mistake_journal/presentation/screens/mistake_journal_screen.dart';
 import 'package:nexus_edu/features/flashcards/presentation/screens/flashcard_screen.dart';
+import 'package:nexus_edu/features/auth/presentation/screens/login_screen.dart';
+import 'package:nexus_edu/features/auth/presentation/screens/signup_screen.dart';
+import 'package:nexus_edu/features/auth/presentation/screens/forgot_password_screen.dart';
 import 'package:nexus_edu/features/monetization/presentation/screens/nexus_pro_paywall_screen.dart';
 import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
 import 'package:nexus_edu/core/services/openrouter_service.dart';
@@ -143,9 +146,16 @@ Future<void> main() async {
   await YoutubeDiscoveryService.init();
   await AppSettings.instance.load();
   final prefs = await SharedPreferences.getInstance();
-  initialLocation = prefs.getBool('privacy_accepted') ?? false
-      ? '/dashboard'
-      : '/privacy-policy?firstTime=1';
+  final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
+  final privacyAccepted = prefs.getBool('privacy_accepted') ?? false;
+
+  if (!isLoggedIn) {
+    initialLocation = '/login';
+  } else if (!privacyAccepted) {
+    initialLocation = '/privacy-policy?firstTime=1';
+  } else {
+    initialLocation = '/dashboard';
+  }
   runApp(const ProviderScope(child: NexusEduApp()));
 }
 
@@ -154,6 +164,18 @@ String initialLocation = '/onboarding';
 final _router = GoRouter(
   initialLocation: initialLocation,
   routes: [
+    GoRoute(
+      path: '/login',
+      builder: (context, state) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/signup',
+      builder: (context, state) => const SignupScreen(),
+    ),
+    GoRoute(
+      path: '/forgot-password',
+      builder: (context, state) => const ForgotPasswordScreen(),
+    ),
     GoRoute(
       path: '/onboarding',
       builder: (context, state) => const OnboardingScreen(),
