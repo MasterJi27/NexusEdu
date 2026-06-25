@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -44,24 +45,56 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       return;
     }
 
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      final api = SecureApiService();
+      final result = await api.login(email, password);
 
-    final prefs = await SharedPreferences.getInstance();
-    final savedEmail = prefs.getString('user_email');
-    final savedPassword = prefs.getString('user_password');
+      if (result['error'] != null) {
+        // Fallback to local auth if proxy is offline
+        final prefs = await SharedPreferences.getInstance();
+        final savedEmail = prefs.getString('user_email');
+        final savedPassword = prefs.getString('user_password');
 
-    if (savedEmail == email && savedPassword == password) {
-      await prefs.setBool('is_logged_in', true);
-      await prefs.setBool('privacy_accepted', true);
-      if (mounted) context.go('/onboarding');
-    } else if (savedEmail == null) {
-      await prefs.setString('user_email', email);
-      await prefs.setString('user_password', password);
-      await prefs.setBool('is_logged_in', true);
-      await prefs.setBool('privacy_accepted', true);
-      if (mounted) context.go('/onboarding');
-    } else {
-      setState(() { _isLoading = false; _error = 'Invalid email or password'; });
+        if (savedEmail == email && savedPassword == password) {
+          await prefs.setBool('is_logged_in', true);
+          await prefs.setBool('privacy_accepted', true);
+          if (mounted) context.go('/onboarding');
+          return;
+        } else if (savedEmail == null) {
+          await prefs.setString('user_email', email);
+          await prefs.setString('user_password', password);
+          await prefs.setBool('is_logged_in', true);
+          await prefs.setBool('privacy_accepted', true);
+          if (mounted) context.go('/onboarding');
+          return;
+        }
+
+        setState(() { _isLoading = false; _error = result['error']; });
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_logged_in', true);
+        await prefs.setBool('privacy_accepted', true);
+        if (mounted) context.go('/onboarding');
+      }
+    } catch (e) {
+      // Fallback to local auth
+      final prefs = await SharedPreferences.getInstance();
+      final savedEmail = prefs.getString('user_email');
+      final savedPassword = prefs.getString('user_password');
+
+      if (savedEmail == email && savedPassword == password) {
+        await prefs.setBool('is_logged_in', true);
+        await prefs.setBool('privacy_accepted', true);
+        if (mounted) context.go('/onboarding');
+      } else if (savedEmail == null) {
+        await prefs.setString('user_email', email);
+        await prefs.setString('user_password', password);
+        await prefs.setBool('is_logged_in', true);
+        await prefs.setBool('privacy_accepted', true);
+        if (mounted) context.go('/onboarding');
+      } else {
+        setState(() { _isLoading = false; _error = 'Invalid email or password'; });
+      }
     }
   }
 
