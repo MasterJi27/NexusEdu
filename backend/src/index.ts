@@ -5,8 +5,23 @@ import coursesRoutes from './routes/courses';
 import assignmentsRoutes from './routes/assignments';
 import aiRoutes from './routes/ai';
 import dotenv from 'dotenv';
+import * as appInsights from 'applicationinsights';
 
 dotenv.config();
+
+// Initialize Application Insights if connection string exists
+if (process.env.APPLICATIONINSIGHTS_CONNECTION_STRING) {
+  appInsights.setup(process.env.APPLICATIONINSIGHTS_CONNECTION_STRING)
+    .setAutoDependencyCorrelation(true)
+    .setAutoCollectRequests(true)
+    .setAutoCollectPerformance(true, true)
+    .setAutoCollectExceptions(true)
+    .setAutoCollectDependencies(true)
+    .setAutoCollectConsole(true)
+    .setUseDiskRetryCaching(true)
+    .start();
+  console.log("Application Insights initialized.");
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
