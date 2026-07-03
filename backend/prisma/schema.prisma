@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               String   @id @default(uuid())
+  name             String
+  email            String   @unique
+  password         String?  // nullable for google sign-in users
+  role             String   @default("student") // student, teacher, parent, admin
+  xp               Int      @default(0)
+  streak           Int      @default(0)
+  photoUrl         String?
+  
+  // Government Compliance / PII fields
+  phoneNumber      String?
+  dateOfBirth      DateTime?
+  guardianName     String?
+  guardianPhone    String?
+  consentGiven     Boolean  @default(false)
+  
+  // AI Training Data / Demographics
+  schoolBoard      String?
+  gradeLevel       String?
+  learningStyle    String?  // visual, auditory, kinesthetic
+  weakSubjects     String[] // array of subjects
+  strongSubjects   String[]
+  averageAttentionSpan Int? // in minutes
+  preferredLanguage String? @default("en")
+
+  lastLoginAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  loginLogs        LoginLog[]
+  activityLogs     ActivityLog[]
+  coursesTaught    Course[]       @relation("InstructorCourses")
+  submissions      Submission[]
+  courseEnrollments CourseEnrollment[]
+}
+
+model LoginLog {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress    String?
+  deviceInfo   String?
+  timestamp    DateTime @default(now())
+}
+
+model ActivityLog {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action       String   // e.g., "COMPLETED_LESSON", "SUBMITTED_ASSIGNMENT"
+  metadata     Json?    // Any extra contextual data
+  timestamp    DateTime @default(now())
+}
+
+// EdTech Core Models
+model Course {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  thumbnailUrl String?
+  instructorId String
+  instructor   User     @relation("InstructorCourses", fields: [instructorId], references: [id])
+  
+  modules      Module[]
+  enrollments  CourseEnrollment[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CourseEnrollment {
+  id           String   @id @default(uuid())
+  userId       String
+  courseId     String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  enrolledAt   DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model Module {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  order        Int
+  courseId     String
+  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  lessons      Lesson[]
+  assignments  Assignment[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Lesson {
+  id           String   @id @default(uuid())
+  title        String
+  content      String?  // Rich text or markdown
+  videoUrl     String?  // Link to blob storage
+  order        Int
+  moduleId     String
+  module       Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Assignment {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  dueDate      DateTime?
+  moduleId     String
+  module       Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  
+  submissions  Submission[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Submission {
+  id           String   @id @default(uuid())
+  content      String?
+  fileUrl      String?  // Link to blob storage for uploaded work
+  score        Float?
+  feedback     String?  // AI or Teacher feedback
+  
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  
+  studentId    String
+  student      User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  submittedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

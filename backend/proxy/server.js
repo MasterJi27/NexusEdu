@@ -188,18 +188,16 @@ function generateTokens(user) {
   return { accessToken, refreshToken };
 }
 
-// OpenRouter API Call
-async function callOpenRouter(messages, options = {}) {
-  const response = await fetch(process.env.OPENROUTER_BASE_URL, {
+// OpenCode API Call
+async function callOpenCode(messages, options = {}) {
+  const response = await fetch(process.env.OPENCODE_BASE_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      'HTTP-Referer': 'https://nexusedu.app',
-      'X-Title': 'NexusEdu',
+      'Authorization': `Bearer ${process.env.OPENCODE_API_KEY}`,
     },
     body: JSON.stringify({
-      model: options.model || process.env.OPENROUTER_MODEL,
+      model: options.model || process.env.OPENCODE_MODEL,
       messages,
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature || 0.7,
@@ -207,7 +205,7 @@ async function callOpenRouter(messages, options = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenRouter API error: ${response.status}`);
+    throw new Error(`OpenCode API error: ${response.status}`);
   }
 
   return response.json();
@@ -348,7 +346,7 @@ app.post('/api/ai/chat', authenticate, aiLimiter, sanitizeInput, logRequest, asy
     });
     messages.push({ role: 'user', content: prompt });
 
-    const result = await callOpenRouter(messages);
+    const result = await callOpenCode(messages);
 
     res.json({
       result: result.choices[0]?.message?.content || 'No response generated.',
@@ -372,7 +370,7 @@ app.post('/api/ai/solve-doubt', authenticate, aiLimiter, sanitizeInput, logReque
       { role: 'user', content: question },
     ];
 
-    const result = await callOpenRouter(messages);
+    const result = await callOpenCode(messages);
     res.json({ result: result.choices[0]?.message?.content });
   } catch (error) {
     res.status(500).json({ error: 'Failed to solve doubt' });
@@ -395,7 +393,7 @@ app.post('/api/ai/generate-quiz', authenticate, aiLimiter, sanitizeInput, logReq
       },
     ];
 
-    const result = await callOpenRouter(messages);
+    const result = await callOpenCode(messages);
     res.json({ result: result.choices[0]?.message?.content });
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate quiz' });
@@ -418,7 +416,7 @@ app.post('/api/ai/generate-notes', authenticate, aiLimiter, sanitizeInput, logRe
       },
     ];
 
-    const result = await callOpenRouter(messages);
+    const result = await callOpenCode(messages);
     res.json({ result: result.choices[0]?.message?.content });
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate notes' });
@@ -438,7 +436,7 @@ app.post('/api/ai/solve-math', authenticate, aiLimiter, sanitizeInput, logReques
       { role: 'user', content: problem },
     ];
 
-    const result = await callOpenRouter(messages);
+    const result = await callOpenCode(messages);
     res.json({ result: result.choices[0]?.message?.content });
   } catch (error) {
     res.status(500).json({ error: 'Failed to solve math problem' });
