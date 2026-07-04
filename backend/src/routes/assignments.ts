@@ -7,8 +7,12 @@ const prisma = new PrismaClient();
 // Get assignments for a module
 router.get('/module/:moduleId', async (req: Request, res: Response) => {
   try {
+    const filter: any = { moduleId: req.params.moduleId };
+    if (req.query.courseId) {
+      filter.courseId = req.query.courseId as string;
+    }
     const assignments = await prisma.assignment.findMany({
-      where: { moduleId: req.params.moduleId }
+      where: filter
     });
     res.json(assignments);
   } catch (error) {
