@@ -106,4 +106,71 @@ router.post('/solve-math', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+router.post('/tutor-stream', async (req: Request, res: Response): Promise<void> => {
+  const { message } = req.body;
+  if (!message) {
+    res.status(400).json({ error: 'Message is required' });
+    return;
+  }
+
+  try {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) throw new Error('GROQ_API_KEY is not configured');
+
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama3-8b-8192',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are Nexus, a friendly AI Tutor for Indian students. ALWAYS respond in clear English. Be helpful, encouraging, and concise. Use simple language. Format responses properly.'
+          },
+          {
+            role: 'user',
+            content: message
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 2048,
+        stream: true
+      })
+    });
+
+    if (!groqResponse.ok || !groqResponse.body) {
+      throw new Error(`Groq API error: ${groqResponse.status}`);
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
+
+    const bodyStream = groqResponse.body as any;
+    if (typeof bodyStream.pipe === 'function') {
+      // If node-fetch is used
+      bodyStream.pipe(res);
+    } else {
+      // If native fetch Web Streams are used
+      const reader = bodyStream.getReader();
+      const decoder = new TextDecoder('utf-8');
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        res.write(chunk);
+      }
+      res.end();
+    }
+  } catch (error: any) {
+    console.error('Tutor Stream Error:', error);
+    res.status(500).end();
+  }
+});
+
 export default router;
