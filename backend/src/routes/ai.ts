@@ -4,40 +4,40 @@ import path from 'path';
 
 const router = Router();
 
-router.post('/chat', (req: Request, res: Response) => {
-  const { message, userId, context } = req.body;
+router.post('/chat', async (req: Request, res: Response): Promise<void> => {
+  const { messages, model, max_tokens, temperature } = req.body;
   
-  // Example of calling the python AI agents
-  // In a real production app, we would use a message queue or gRPC
-  const pythonProcess = spawn('python', [
-    path.join(__dirname, '../../../main.py'), // Path to main.py
-    'chat',
-    JSON.stringify({ message, userId, context })
-  ]);
+  try {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) throw new Error('GROQ_API_KEY is not configured');
 
-  let resultData = '';
-  
-  pythonProcess.stdout.on('data', (data) => {
-    resultData += data.toString();
-  });
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: model || 'llama3-8b-8192',
+        messages: messages || [],
+        temperature: temperature || 0.7,
+        max_tokens: max_tokens || 2048,
+      })
+    });
 
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`AI Error: ${data}`);
-  });
-
-  pythonProcess.on('close', (code) => {
-    if (code === 0) {
-      try {
-        // Assume the python script returns JSON
-        const jsonResponse = JSON.parse(resultData);
-        res.json(jsonResponse);
-      } catch (e) {
-        res.json({ reply: resultData.trim() });
-      }
-    } else {
-      res.status(500).json({ error: 'AI processing failed' });
+    if (!groqResponse.ok) {
+      const errText = await groqResponse.text();
+      console.error('Groq Chat Error:', errText);
+      res.status(groqResponse.status).json({ error: 'AI Error', details: errText });
+      return;
     }
-  });
+
+    const data: any = await groqResponse.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error('Chat Error:', error);
+    res.status(500).json({ error: 'Failed to process chat' });
+  }
 });
 
 router.post('/solve-math', async (req: Request, res: Response): Promise<void> => {

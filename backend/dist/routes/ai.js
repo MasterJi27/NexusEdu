@@ -1,43 +1,39 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const child_process_1 = require("child_process");
-const path_1 = __importDefault(require("path"));
 const router = (0, express_1.Router)();
-router.post('/chat', (req, res) => {
-    const { message, userId, context } = req.body;
-    // Example of calling the python AI agents
-    // In a real production app, we would use a message queue or gRPC
-    const pythonProcess = (0, child_process_1.spawn)('python', [
-        path_1.default.join(__dirname, '../../../main.py'), // Path to main.py
-        'chat',
-        JSON.stringify({ message, userId, context })
-    ]);
-    let resultData = '';
-    pythonProcess.stdout.on('data', (data) => {
-        resultData += data.toString();
-    });
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`AI Error: ${data}`);
-    });
-    pythonProcess.on('close', (code) => {
-        if (code === 0) {
-            try {
-                // Assume the python script returns JSON
-                const jsonResponse = JSON.parse(resultData);
-                res.json(jsonResponse);
-            }
-            catch (e) {
-                res.json({ reply: resultData.trim() });
-            }
+router.post('/chat', async (req, res) => {
+    const { messages, model, max_tokens, temperature } = req.body;
+    try {
+        const groqApiKey = process.env.GROQ_API_KEY;
+        if (!groqApiKey)
+            throw new Error('GROQ_API_KEY is not configured');
+        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${groqApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: model || 'llama3-8b-8192',
+                messages: messages || [],
+                temperature: temperature || 0.7,
+                max_tokens: max_tokens || 2048,
+            })
+        });
+        if (!groqResponse.ok) {
+            const errText = await groqResponse.text();
+            console.error('Groq Chat Error:', errText);
+            res.status(groqResponse.status).json({ error: 'AI Error', details: errText });
+            return;
         }
-        else {
-            res.status(500).json({ error: 'AI processing failed' });
-        }
-    });
+        const data = await groqResponse.json();
+        res.json(data);
+    }
+    catch (error) {
+        console.error('Chat Error:', error);
+        res.status(500).json({ error: 'Failed to process chat' });
+    }
 });
 router.post('/solve-math', async (req, res) => {
     const { question } = req.body;
