@@ -1,4 +1,4 @@
-package com.nexusedu.app.nexus_edu
+﻿package com.nexus.edu
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -4,6 +4,7 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
 
 val keystorePropertiesFile = rootProject.file("key.properties")
@@ -14,17 +15,18 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.nexusedu.app.nexus_edu"
-    compileSdk = flutter.compileSdkVersion
+    namespace = "com.nexus.edu"
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
-        applicationId = "com.nexusedu.app.nexus_edu"
+        applicationId = "com.nexus.edu"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -49,6 +51,12 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
@@ -61,4 +69,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
