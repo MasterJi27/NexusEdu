@@ -1,6 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
 
+/// Real XP leaderboard, read from `GET /api/users/leaderboard`.
+///
+/// This screen used to render a hardcoded podium (Sarah/Alex/John, or
+/// Mia/Leo/Zoe on a "Campus" tab) above ten rows of `Student N` with XP
+/// derived from `1500 - index * 50` — entirely invented, and shown to students
+/// as though they were competing against real people. Per `PRODUCT.md`, a
+/// number that cannot be traced to real activity must not be presented as
+/// fact, so all of it is gone.
+///
+/// The "Campus" segment went with it: there is no campus or institution model
+/// in the schema, so a campus-scoped ranking was a claim the backend could not
+/// answer. When there is genuinely nothing to rank yet, this shows an honest
+/// empty state instead of filling the space.
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
 
@@ -9,166 +26,162 @@ class LeaderboardScreen extends StatefulWidget {
 }
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
-  int _selectedSegment = 0; // 0: Global, 1: Campus
+  bool _isLoading = true;
+  String? _error;
+  List<dynamic> _entries = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    if (!SecureApiService().isLoggedIn) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    final entries = await SecureApiService().getLeaderboard();
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Leaderboard', style: TextStyle(fontWeight: FontWeight.bold)),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(70),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12),
-            child: Container(
-              height: 48,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
+    return NexusScreen(title: 'Leaderboard', body: _buildBody(context));
+  }
+
+  Widget _buildBody(BuildContext context) {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(AppSpace.lg),
+        child: NexusStateView.loading(rows: 5),
+      );
+    }
+    if (!SecureApiService().isLoggedIn) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(AppSpace.xl),
+          child: NexusStateView.empty(
+            title: 'Sign in to see the leaderboard',
+            description:
+                'Rankings are based on real XP earned by signed-in students.',
+            icon: Icons.lock_outline,
+          ),
+        ),
+      );
+    }
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: NexusStateView.error(message: _error!, onRetry: _load),
+      );
+    }
+    if (_entries.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpace.xl),
+          child: NexusStateView.empty(
+            title: 'No rankings yet',
+            description:
+                'Once students start earning XP, the top scorers appear here.',
+            icon: Icons.leaderboard_outlined,
+            actionLabel: 'Refresh',
+            onAction: _load,
+          ),
+        ),
+      );
+    }
+
+    final myId = SecureApiService().userId;
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.lg,
+          AppSpace.md,
+          AppSpace.lg,
+          AppSpace.xxl,
+        ),
+        itemCount: _entries.length,
+        itemBuilder: (context, index) {
+          final entry = Map<String, dynamic>.from(_entries[index] as Map);
+          return _buildRow(context, entry, index + 1, entry['id'] == myId);
+        },
+      ),
+    );
+  }
+
+  Widget _buildRow(
+    BuildContext context,
+    Map<String, dynamic> entry,
+    int rank,
+    bool isMe,
+  ) {
+    final t = context.tokens;
+    final name = entry['name'] as String? ?? 'Student';
+    final xp = (entry['xp'] as num?)?.toInt() ?? 0;
+    final streak = (entry['streak'] as num?)?.toInt() ?? 0;
+    final photoUrl = entry['photoUrl'] as String?;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpace.xs),
+      child: NexusCard(
+        background: isMe ? t.primaryTint : null,
+        borderColor: isMe ? t.primaryTintBorder : null,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.md,
+          vertical: AppSpace.sm,
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 32,
+              child: Text('$rank', style: context.typeExtras.figure),
+            ),
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: t.surfaceAlt,
+              backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                  ? NetworkImage(photoUrl)
+                  : null,
+              child: (photoUrl == null || photoUrl.isEmpty)
+                  ? Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: context.text.labelMedium,
+                    )
+                  : null,
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: _buildSegmentBtn('Global', 0)),
-                  Expanded(child: _buildSegmentBtn('Campus', 1)),
+                  Text(
+                    isMe ? '$name (you)' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.typeExtras.bodyStrong,
+                  ),
+                  if (streak > 0)
+                    Text('$streak day streak', style: context.text.bodySmall),
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 500),
-        child: Column(
-          key: ValueKey<int>(_selectedSegment),
-          children: [
-            const SizedBox(height: 32),
-            _buildPodium(context),
-            const SizedBox(height: 32),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withAlpha(20), blurRadius: 20, offset: const Offset(0, -5))
-                  ],
-                ),
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(24),
-                  itemCount: 10,
-                  itemBuilder: (context, index) {
-                    final rank = index + 4;
-                    final xp = _selectedSegment == 0 ? 1500 - (index * 50) : 900 - (index * 30);
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        child: Text('$rank', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                      title: Text('Student $rank', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withAlpha(30),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text('$xp XP', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-                      ),
-                    ).animate().fade(delay: (50 * index).ms).slideY(begin: 0.1);
-                  },
-                ),
-              ),
-            )
+            Text(
+              '$xp XP',
+              style: context.typeExtras.figure.copyWith(color: t.secondary),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildSegmentBtn(String title, int index) {
-    final isSelected = _selectedSegment == index;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedSegment = index),
-      child: Container(
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: isSelected ? [BoxShadow(color: Theme.of(context).colorScheme.primary.withAlpha(100), blurRadius: 10)] : null,
-        ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPodium(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        _buildPodiumSpot(context, 2, _selectedSegment == 0 ? 'Sarah' : 'Mia', _selectedSegment == 0 ? 2000 : 1200, Colors.grey.shade400, 100),
-        _buildPodiumSpot(context, 1, _selectedSegment == 0 ? 'Alex' : 'Leo', _selectedSegment == 0 ? 2500 : 1500, Colors.amber, 150),
-        _buildPodiumSpot(context, 3, _selectedSegment == 0 ? 'John' : 'Zoe', _selectedSegment == 0 ? 1800 : 1000, Colors.brown.shade300, 70),
-      ],
-    );
-  }
-
-  Widget _buildPodiumSpot(BuildContext context, int rank, String name, int xp, Color color, double height) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: rank == 1 ? 80 : 60,
-              height: rank == 1 ? 80 : 60,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color.withAlpha(30),
-              ),
-            ).animate(onPlay: (c) => c.repeat()).scale(begin: const Offset(1,1), end: const Offset(1.2,1.2)).fade(begin: 1, end: 0),
-            CircleAvatar(
-              radius: rank == 1 ? 35 : 28, 
-              backgroundColor: color, 
-              child: const Icon(Icons.person, color: Colors.white, size: 32)
-            ),
-            if (rank == 1)
-              const Positioned(
-                top: -10,
-                child: Icon(Icons.star, color: Colors.amberAccent, size: 28),
-              ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(begin: const Offset(1,1), end: const Offset(1.3,1.3)),
-          ],
-        ).animate().scale(curve: Curves.easeOutBack, delay: 300.ms),
-        const SizedBox(height: 12),
-        Text(name, style: TextStyle(fontWeight: rank == 1 ? FontWeight.bold : FontWeight.normal, fontSize: rank == 1 ? 18 : 16)),
-        Text('$xp XP', style: const TextStyle(color: Colors.amber, fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        Container(
-          width: rank == 1 ? 100 : 80,
-          height: height,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [color, color.withAlpha(150)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            boxShadow: [
-               BoxShadow(color: color.withAlpha(100), blurRadius: 20, spreadRadius: 5)
-            ]
-          ),
-          alignment: Alignment.topCenter,
-          padding: const EdgeInsets.only(top: 12),
-          child: Text('$rank', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-        ).animate().scaleY(alignment: Alignment.bottomCenter, duration: 600.ms, curve: Curves.easeOutQuart),
-      ],
     );
   }
 }

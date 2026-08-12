@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/ai_tool_scaffold.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
 class YoutubeSummaryScreen extends StatefulWidget {
   const YoutubeSummaryScreen({super.key});
@@ -12,106 +14,120 @@ class YoutubeSummaryScreen extends StatefulWidget {
 class _YoutubeSummaryScreenState extends State<YoutubeSummaryScreen> {
   final TextEditingController _urlController = TextEditingController();
   bool _isLoading = false;
+  String? _error;
   String _summary = '';
+
+  /// Matches the 11-character video id out of the common URL shapes
+  /// (watch?v=, youtu.be/, /shorts/); returns null for anything else so the
+  /// preview can fall back to a placeholder instead of a broken image.
+  static final _youtubeIdPattern =
+      RegExp(r'(?:v=|youtu\.be/|/shorts/)([A-Za-z0-9_-]{11})');
+
+  String? _extractYoutubeId(String url) {
+    return _youtubeIdPattern.firstMatch(url.trim())?.group(1);
+  }
 
   void _generate() async {
     if (_urlController.text.isEmpty) return;
-    setState(() { _isLoading = true; _summary = ''; });
-    final result = await AiService.generateYoutubeSummary(_urlController.text);
-    if (!mounted) return;
-    setState(() { _isLoading = false; _summary = result; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _summary = '';
+    });
+    try {
+      final result = await AiService.generateYoutubeSummary(_urlController.text);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _summary = result;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = "Couldn't summarize this video. Check your connection and try again.";
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text('YouTube Learning Mode', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.transparent,
-      ),
-      body: Column(
+    return AiToolScaffold(
+      title: 'YouTube Learning Mode',
+      subtitle: 'Paste a link and tap Generate to analyze!',
+      inputForm: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Simulated Video Player
-          Container(
-            width: double.infinity,
-            height: 250,
-            color: Colors.black,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Image.network(
-                    'https://images.unsplash.com/photo-1498050108023-c5249f4df085?q=80&w=1000&auto=format&fit=crop',
-                    fit: BoxFit.cover,
-                    color: Colors.black45,
-                    colorBlendMode: BlendMode.darken,
-                  ),
-                ),
-                Center(
-                  child: IconButton(
-                    icon: const Icon(Icons.play_circle_fill, color: Colors.white, size: 64),
-                    onPressed: () {},
-                  ).animate(onPlay: (c) => c.repeat(reverse: true)).scaleXY(end: 1.1),
-                ),
-                Positioned(
-                  bottom: 10,
-                  right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    color: Colors.black87,
-                    child: const Text('14:23', style: TextStyle(color: Colors.white, fontSize: 12)),
-                  ),
-                ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: LinearProgressIndicator(value: 0.3, color: Colors.red, backgroundColor: Colors.white24),
-                )
-              ],
-            ),
-          ),
-          
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                TextField(
-                  controller: _urlController,
-                  decoration: InputDecoration(
-                    hintText: 'Paste YouTube URL here...',
-                    filled: true,
-                    fillColor: Theme.of(context).cardColor,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.auto_awesome, color: Colors.deepPurpleAccent),
-                      onPressed: _generate,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                if (_isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else if (_summary.isNotEmpty) ...[
-                  const Text('AI Summary & Quiz', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.deepPurpleAccent.withAlpha(50)),
-                    ),
-                    child: Text(_summary, style: const TextStyle(fontSize: 16, height: 1.5)),
-                  ).animate().fade().slideY(),
-                ] else ...[
-                  const Center(child: Text('Paste a link and tap the sparkle icon to analyze!', style: TextStyle(color: Colors.grey))),
-                ],
-              ],
-            ),
+          _buildVideoPreview(context),
+          const SizedBox(height: AppSpace.md),
+          NexusTextField(
+            controller: _urlController,
+            hint: 'Paste YouTube URL here...',
           ),
         ],
       ),
+      generateLabel: 'Analyze',
+      isGenerating: _isLoading,
+      onGenerate: _generate,
+      errorText: _error,
+      onRetry: _generate,
+      resultBuilder: _summary.isEmpty
+          ? null
+          : (ctx) => SelectableText(
+                _summary,
+                style: ctx.text.bodyLarge?.copyWith(height: 1.5),
+              ),
+    );
+  }
+
+  /// A real thumbnail for the pasted video, not a player — this screen only
+  /// summarizes, it never plays anything. Replaces a mockup that showed an
+  /// unrelated stock photo with a hardcoded "14:23" duration and a frozen
+  /// progress bar regardless of what was pasted.
+  Widget _buildVideoPreview(BuildContext context) {
+    final t = context.tokens;
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _urlController,
+      builder: (context, value, _) {
+        final id = _extractYoutubeId(value.text);
+        if (id == null) {
+          return Container(
+            width: double.infinity,
+            height: 160,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: t.surfaceAlt,
+              borderRadius: AppRadius.brMd,
+              border: Border.all(color: t.border),
+            ),
+            child: Text(
+              'Paste a YouTube link to preview it here',
+              style: context.text.bodySmall?.copyWith(color: t.inkMuted),
+            ),
+          );
+        }
+        return ClipRRect(
+          borderRadius: AppRadius.brMd,
+          child: Image.network(
+            'https://img.youtube.com/vi/$id/hqdefault.jpg',
+            width: double.infinity,
+            height: 200,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => Container(
+              height: 200,
+              color: t.surfaceAlt,
+              alignment: Alignment.center,
+              child: Icon(Icons.smart_display_outlined, color: t.inkFaint, size: 40),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -8,6 +8,8 @@ class AppSettings extends ChangeNotifier {
   static const _examNameKey = 'exam_name';
   static const _streakKey = 'study_streak';
   static const _streakDateKey = 'last_study_date';
+  static const _streakSaverKey = 'streak_saver_used';
+  static const _dailyMinutesKey = 'daily_minutes_goal';
   static const _pomodoroWorkKey = 'pomodoro_work_min';
   static const _pomodoroBreakKey = 'pomodoro_break_min';
   static const _pomodoroSessionsKey = 'pomodoro_sessions_today';
@@ -17,8 +19,6 @@ class AppSettings extends ChangeNotifier {
   static const _flashcardDecksKey = 'flashcard_decks';
   static const _curriculumKey = 'curriculum_data';
   static const _reviewScheduleKey = 'review_schedule_items';
-  static const _swarmAgentScoresKey = 'swarm_agent_scores';
-  static const _dreamJournalKey = 'dream_journal';
 
   ThemeMode _themeMode = ThemeMode.system;
   ThemeMode get themeMode => _themeMode;
@@ -31,6 +31,20 @@ class AppSettings extends ChangeNotifier {
 
   int _streak = 0;
   int get streak => _streak;
+
+  bool _streakSaverUsed = false;
+
+  /// One free missed day per streak cycle: when a day is skipped the streak
+  /// is kept instead of reset, and the shield is consumed until the streak
+  /// is continued again.
+  bool get streakSaverUsed => _streakSaverUsed;
+
+  /// The calendar day of the last study activity, 'YYYY-MM-DD' or ''.
+  String _lastStudyDate = '';
+  String get lastStudyDate => _lastStudyDate;
+
+  int _dailyMinutesGoal = 30;
+  int get dailyMinutesGoal => _dailyMinutesGoal;
 
   int _pomodoroWork = 25;
   int get pomodoroWork => _pomodoroWork;
@@ -56,15 +70,26 @@ class AppSettings extends ChangeNotifier {
   List<Map<String, dynamic>> _reviewSchedule = [];
   List<Map<String, dynamic>> get reviewSchedule => _reviewSchedule;
 
-  List<Map<String, dynamic>> _swarmAgentScores = [];
-  List<Map<String, dynamic>> get swarmAgentScores => _swarmAgentScores;
-
-  List<Map<String, dynamic>> _dreamJournal = [];
-  List<Map<String, dynamic>> get dreamJournal => _dreamJournal;
-
   static AppSettings? _instance;
   static AppSettings get instance => _instance ??= AppSettings._();
   AppSettings._();
+
+  /// Decodes a stored entry: JSON first, then the legacy `key=value|key=value`
+  /// codec older builds wrote. Returns null only if neither matches.
+  static Map<String, dynamic>? tryDecode(String e) {
+    try {
+      final decoded = json.decode(e);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } on FormatException {
+      // fall through to legacy codec
+    }
+    final map = <String, dynamic>{};
+    for (final part in e.split('|')) {
+      final kv = part.split('=');
+      if (kv.length == 2) map[kv[0]] = kv[1];
+    }
+    return map.isEmpty ? null : map;
+  }
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -75,6 +100,9 @@ class AppSettings extends ChangeNotifier {
         : null;
     _examName = prefs.getString(_examNameKey) ?? 'Exam';
     _streak = prefs.getInt(_streakKey) ?? 0;
+    _streakSaverUsed = prefs.getBool(_streakSaverKey) ?? false;
+    _lastStudyDate = prefs.getString(_streakDateKey) ?? '';
+    _dailyMinutesGoal = prefs.getInt(_dailyMinutesKey) ?? 30;
     _pomodoroWork = prefs.getInt(_pomodoroWorkKey) ?? 25;
     _pomodoroBreak = prefs.getInt(_pomodoroBreakKey) ?? 5;
     _pomodoroSessionsToday = prefs.getInt(_pomodoroSessionsKey) ?? 0;
@@ -82,37 +110,29 @@ class AppSettings extends ChangeNotifier {
     final notesJson = prefs.getStringList(_notesCacheKey);
     if (notesJson != null) {
       _cachedNotes = notesJson
-          .map((e) => Map<String, dynamic>.from(_decodeJson(e)))
+          .map((e) => tryDecode(e))
+          .whereType<Map<String, dynamic>>()
           .toList();
     }
     final decksJson = prefs.getStringList(_flashcardDecksKey);
     if (decksJson != null) {
       _flashcardDecks = decksJson
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
+          .map((e) => tryDecode(e))
+          .whereType<Map<String, dynamic>>()
           .toList();
     }
     final curJson = prefs.getStringList(_curriculumKey);
     if (curJson != null) {
       _curriculum = curJson
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
+          .map((e) => tryDecode(e))
+          .whereType<Map<String, dynamic>>()
           .toList();
     }
     final revJson = prefs.getStringList(_reviewScheduleKey);
     if (revJson != null) {
       _reviewSchedule = revJson
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
-    }
-    final swarmJson = prefs.getStringList(_swarmAgentScoresKey);
-    if (swarmJson != null) {
-      _swarmAgentScores = swarmJson
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
-    }
-    final dreamJson = prefs.getStringList(_dreamJournalKey);
-    if (dreamJson != null) {
-      _dreamJournal = dreamJson
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
+          .map((e) => tryDecode(e))
+          .whereType<Map<String, dynamic>>()
           .toList();
     }
     _updateStreak(prefs);
@@ -176,7 +196,7 @@ class AppSettings extends ChangeNotifier {
   Future<void> saveCachedNotes(List<Map<String, dynamic>> notes) async {
     _cachedNotes = notes;
     final prefs = await SharedPreferences.getInstance();
-    final encoded = notes.map((e) => _encodeJson(e)).toList();
+    final encoded = notes.map((e) => json.encode(e)).toList();
     await prefs.setStringList(_notesCacheKey, encoded);
     notifyListeners();
   }
@@ -184,7 +204,7 @@ class AppSettings extends ChangeNotifier {
   Future<void> addCachedNote(Map<String, dynamic> note) async {
     _cachedNotes.insert(0, note);
     final prefs = await SharedPreferences.getInstance();
-    final encoded = _cachedNotes.map((e) => _encodeJson(e)).toList();
+    final encoded = _cachedNotes.map((e) => json.encode(e)).toList();
     await prefs.setStringList(_notesCacheKey, encoded);
     notifyListeners();
   }
@@ -192,7 +212,7 @@ class AppSettings extends ChangeNotifier {
   Future<void> deleteCachedNote(int index) async {
     _cachedNotes.removeAt(index);
     final prefs = await SharedPreferences.getInstance();
-    final encoded = _cachedNotes.map((e) => _encodeJson(e)).toList();
+    final encoded = _cachedNotes.map((e) => json.encode(e)).toList();
     await prefs.setStringList(_notesCacheKey, encoded);
     notifyListeners();
   }
@@ -249,70 +269,56 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveSwarmAgentScores(List<Map<String, dynamic>> agents) async {
-    _swarmAgentScores = agents;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      _swarmAgentScoresKey,
-      agents.map((e) => json.encode(e)).toList(),
-    );
-    notifyListeners();
-  }
+  /// Pure streak rule, extracted for tests. Returns the new (streak, saverUsed).
+  /// `lastStudyDate` is 'YYYY-MM-DD' or ''.
+  static (int, bool) computeStreak(
+    int currentStreak,
+    String lastStudyDate,
+    bool saverUsed,
+    DateTime today,
+  ) {
+    if (lastStudyDate.isEmpty) return (1, false);
+    final lastDate = DateTime.tryParse(lastStudyDate);
+    if (lastDate == null) return (1, false);
 
-  Future<void> saveDreamJournal(List<Map<String, dynamic>> entries) async {
-    _dreamJournal = entries;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      _dreamJournalKey,
-      entries.map((e) => json.encode(e)).toList(),
-    );
-    notifyListeners();
+    final diff = today
+        .difference(DateTime(lastDate.year, lastDate.month, lastDate.day))
+        .inDays;
+    if (diff == 0) return (currentStreak, saverUsed);
+    if (diff == 1) return (currentStreak + 1, false);
+    if (diff == 2 && !saverUsed) return (currentStreak, true);
+    return (1, false);
   }
 
   void _updateStreak(SharedPreferences prefs) {
     final today = DateTime.now();
     final todayStr = today.toIso8601String().substring(0, 10);
     final lastDateStr = prefs.getString(_streakDateKey) ?? '';
+    _lastStudyDate = lastDateStr;
 
     if (lastDateStr == todayStr) return;
 
-    if (lastDateStr.isEmpty) {
-      _streak = 1;
-      prefs.setString(_streakDateKey, todayStr);
-      prefs.setInt(_streakKey, _streak);
-      return;
-    }
-
-    final lastDate = DateTime.tryParse(lastDateStr);
-    if (lastDate == null) {
-      _streak = 1;
-      prefs.setString(_streakDateKey, todayStr);
-      prefs.setInt(_streakKey, _streak);
-      return;
-    }
-
-    final diff = today
-        .difference(DateTime(lastDate.year, lastDate.month, lastDate.day))
-        .inDays;
-    if (diff == 1) {
-      _streak++;
-    } else if (diff > 1) {
-      _streak = 1;
-    }
+    final (newStreak, newSaverUsed) = computeStreak(
+      _streak,
+      lastDateStr,
+      _streakSaverUsed,
+      today,
+    );
+    _streak = newStreak;
+    _streakSaverUsed = newSaverUsed;
+    _lastStudyDate = todayStr;
     prefs.setString(_streakDateKey, todayStr);
     prefs.setInt(_streakKey, _streak);
+    prefs.setBool(_streakSaverKey, _streakSaverUsed);
   }
 
-  String _encodeJson(Map<String, dynamic> map) {
-    return map.entries.map((e) => '${e.key}=${e.value}').join('|');
+  /// The student's daily study target in minutes; drives the focus timer and
+  /// the dashboard's daily goal banner.
+  Future<void> setDailyMinutesGoal(int minutes) async {
+    _dailyMinutesGoal = minutes;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_dailyMinutesKey, minutes);
+    notifyListeners();
   }
 
-  Map<String, dynamic> _decodeJson(String str) {
-    final map = <String, dynamic>{};
-    for (final part in str.split('|')) {
-      final kv = part.split('=');
-      if (kv.length == 2) map[kv[0]] = kv[1];
-    }
-    return map;
-  }
 }

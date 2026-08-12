@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/app/auth_state.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const String _privacyUrl = 'https://masterji27.github.io/NexusEdu-Privacy/';
@@ -16,17 +19,18 @@ class PrivacyPolicyScreen extends StatefulWidget {
 
 class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   Future<void> _acceptPolicy() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('privacy_accepted', true);
-    if (mounted) context.go('/dashboard');
+    await AuthState.instance.markPrivacyAccepted();
+    if (mounted) {
+      // The router redirect will send the user wherever they need to go.
+      context.go('/dashboard');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F0F13),
         title: const Text('Privacy Policy'),
         automaticallyImplyLeading: !widget.isFirstTime,
         leading: widget.isFirstTime
@@ -38,28 +42,26 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       ),
       bottomNavigationBar: widget.isFirstTime
           ? SafeArea(
-              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _acceptPolicy,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Accept and Continue',
-                    style: TextStyle(fontSize: 16, color: Colors.white),
-                  ),
-                ),
+              minimum: const EdgeInsets.fromLTRB(
+                AppSpace.md,
+                AppSpace.xs,
+                AppSpace.md,
+                AppSpace.md,
+              ),
+              child: NexusButton(
+                label: 'Accept and Continue',
+                fullWidth: true,
+                onPressed: _acceptPolicy,
               ),
             )
           : null,
       body: ListView(
-        padding: EdgeInsets.fromLTRB(16, 16, 16, widget.isFirstTime ? 96 : 16),
+        padding: EdgeInsets.fromLTRB(
+          AppSpace.md,
+          AppSpace.md,
+          AppSpace.md,
+          widget.isFirstTime ? 96 : AppSpace.md,
+        ),
         children: [
           _buildSection(
             'Introduction',
@@ -83,18 +85,18 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
           ),
           _buildSection(
             'Data Storage',
-            'Your data is stored locally on your device using SharedPreferences. No data is uploaded to external servers unless explicitly requested (e.g., Gemini AI API calls). You retain full control over your data at all times.',
+            'Your data is stored locally on your device using SharedPreferences. No data is uploaded to external servers unless explicitly requested (e.g., AI tutoring API calls). You retain full control over your data at all times.',
           ),
           _buildSection(
             'Third Party Services',
             'NexusEdu integrates with the following third-party services:\n\n'
-                '• Google Gemini AI API — for AI-powered content generation and tutoring\n'
+                '• Secure AI services — for AI-powered content generation and tutoring\n'
                 '• speech_to_text — for voice-based learning features\n'
                 '• Google Play Services — for installation and updates',
           ),
           _buildSection(
             'Data Security',
-            'All data is processed locally. API calls to Gemini are encrypted using industry-standard protocols. We implement security measures to protect your information from unauthorized access.',
+            'All data is processed locally. API calls to AI services are encrypted using industry-standard protocols. We implement security measures to protect your information from unauthorized access.',
           ),
           _buildSection(
             "Children's Privacy",
@@ -112,64 +114,43 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
             'Contact',
             'If you have any questions or concerns regarding this Privacy Policy, please reach out:\n\nDeveloper: Ragha\nEmail: Raghavkathuria@devflow.me',
           ),
-          const SizedBox(height: 8),
-          const Text(
+          const SizedBox(height: AppSpace.xs),
+          Text(
             'Last updated: June 2026',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white38, fontSize: 13),
+            style: context.text.bodySmall?.copyWith(color: t.inkFaint),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: OutlinedButton.icon(
-              onPressed: () => launchUrl(Uri.parse(_privacyUrl)),
-              icon: const Icon(Icons.open_in_new, size: 18),
-              label: const Text('View Full Policy Online'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.blueAccent,
-                side: const BorderSide(color: Colors.blueAccent),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
+          const SizedBox(height: AppSpace.md),
+          NexusButton(
+            label: 'View Full Policy Online',
+            icon: Icons.open_in_new,
+            variant: NexusButtonVariant.secondary,
+            fullWidth: true,
+            onPressed: () => launchUrl(Uri.parse(_privacyUrl)),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: AppSpace.xl),
         ],
       ),
     );
   }
 
   Widget _buildSection(String title, String body) {
-    return Card(
-      color: const Color(0xFF1E1E1E),
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
+    final t = context.tokens;
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: context.text.titleMedium),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            body,
+            style: context.text.bodyMedium?.copyWith(
+              height: 1.5,
+              color: t.inkMuted,
             ),
-            const SizedBox(height: 8),
-            Text(
-              body,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

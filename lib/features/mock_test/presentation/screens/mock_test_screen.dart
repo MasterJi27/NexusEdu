@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/local_history_store.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_section_header.dart';
 
 class MockTestScreen extends StatefulWidget {
   const MockTestScreen({super.key});
@@ -27,6 +32,8 @@ class _MockTestScreenState extends State<MockTestScreen> {
   int _timeLeft = 0;
   Timer? _timer;
   List<Map<String, dynamic>> _results = [];
+  String? _error;
+  static const _historyStore = LocalHistoryStore('mock_test_results');
 
   final Map<String, List<String>> _subjectsByExam = {
     'JEE': ['Physics', 'Chemistry', 'Maths'],
@@ -49,26 +56,18 @@ class _MockTestScreenState extends State<MockTestScreen> {
   }
 
   Future<void> _loadResults() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('mock_test_results') ?? [];
-    setState(() {
-      _results = saved
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
-    });
+    final results = await _historyStore.load();
+    setState(() => _results = results);
   }
 
   Future<void> _saveResults() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      'mock_test_results',
-      _results.map((e) => json.encode(e)).toList(),
-    );
+    await _historyStore.save(_results);
   }
 
   Future<void> _startTest() async {
     setState(() {
       _isLoading = true;
+      _error = null;
       _questions = [];
     });
 
@@ -80,20 +79,11 @@ class _MockTestScreenState extends State<MockTestScreen> {
         "\"topic\" (string). "
         "No markdown, no code fences. Raw JSON only.";
 
-    final result = await AiService.generateCurriculumContent(prompt);
-
-    if (!mounted) return;
-
     try {
-      String jsonStr = result.trim();
-      if (jsonStr.startsWith('```')) {
-        final lines = jsonStr.split('\n');
-        if (lines.first.startsWith('```')) lines.removeAt(0);
-        if (lines.isNotEmpty && lines.last.startsWith('```')) lines.removeLast();
-        jsonStr = lines.join('\n').trim();
-      }
+      final result = await AiService.generateStructured(prompt);
+      if (!mounted) return;
 
-      final List<dynamic> parsed = json.decode(jsonStr);
+      final List<dynamic> parsed = json.decode(result);
       setState(() {
         _questions = parsed
             .map((e) => Map<String, dynamic>.from(e as Map))
@@ -107,8 +97,12 @@ class _MockTestScreenState extends State<MockTestScreen> {
         _markedForReview = {};
       });
       _startTimer();
-    } catch (_) {
-      setState(() => _isLoading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = "Couldn't generate the test. Check your connection and try again.";
+      });
     }
   }
 
@@ -194,189 +188,170 @@ class _MockTestScreenState extends State<MockTestScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Column(
-          children: [
-            Icon(
-              pct >= 70 ? Icons.emoji_events : Icons.assessment,
-              color: pct >= 70 ? Colors.amberAccent : Colors.deepPurpleAccent,
-              size: 48,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Test Complete!',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _resultRow('Score', '${result['score']}/${result['total']}'),
-              const SizedBox(height: 8),
-              _resultRow('Accuracy', '$pct%'),
-              const SizedBox(height: 8),
-              _resultRow('Time Taken', '$timeTaken min'),
-              const SizedBox(height: 8),
-              _resultRow('Marked for Review', '${result['markedReview']}'),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(30),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+      builder: (ctx) {
+        final t = ctx.tokens;
+        return AlertDialog(
+              backgroundColor: t.surface,
+              shape: RoundedRectangleBorder(borderRadius: AppRadius.brLg),
+              title: Column(
+                children: [
+                  Icon(
+                    pct >= 70 ? Icons.emoji_events : Icons.assessment,
+                    color: pct >= 70 ? t.secondaryFill : t.primary,
+                    size: 48,
+                  ),
+                  const SizedBox(height: AppSpace.xs),
+                  Text(
+                    'Test Complete!',
+                    style: ctx.text.titleLarge?.copyWith(color: t.ink),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Topic-wise Breakdown',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
+                    _resultRow(ctx, 'Score', '${result['score']}/${result['total']}'),
+                    const SizedBox(height: AppSpace.xs),
+                    _resultRow(ctx, 'Accuracy', '$pct%'),
+                    const SizedBox(height: AppSpace.xs),
+                    _resultRow(ctx, 'Time Taken', '$timeTaken min'),
+                    const SizedBox(height: AppSpace.xs),
+                    _resultRow(ctx, 'Marked for Review', '${result['markedReview']}'),
+                    const SizedBox(height: AppSpace.md),
+                    Container(
+                      padding: const EdgeInsets.all(AppSpace.sm),
+                      decoration: BoxDecoration(
+                        color: t.surfaceAlt,
+                        borderRadius: AppRadius.brSm,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Topic-wise Breakdown',
+                            style: ctx.text.labelMedium?.copyWith(
+                              color: t.ink,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpace.xs),
+                          ...subjectScores.entries.take(6).map((e) => Padding(
+                                padding: const EdgeInsets.only(bottom: AppSpace.xxs),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        e.key,
+                                        style: ctx.text.labelSmall?.copyWith(
+                                          color: t.inkMuted,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${e.value['correct']}/${e.value['total']}',
+                                      style: ctx.text.labelSmall?.copyWith(
+                                        color: t.statusPresent,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    ...subjectScores.entries.take(6).map((e) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  e.key,
-                                  style: TextStyle(
-                                    color: Colors.white.withAlpha(180),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                '${e.value['correct']}/${e.value['total']}',
-                                style: const TextStyle(
-                                  color: Colors.tealAccent,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              setState(() {
-                _testStarted = false;
-                _questions.clear();
-              });
-            },
-            child: const Text('OK', style: TextStyle(color: Colors.tealAccent)),
-          ),
-        ],
-      ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _testStarted = false;
+                      _questions.clear();
+                    });
+                  },
+                  child: Text(
+                    'OK',
+                    style: ctx.text.labelLarge?.copyWith(color: t.statusPresent),
+                  ),
+                ),
+              ],
+            );
+      },
     );
   }
 
-  Widget _resultRow(String label, String value) {
+  Widget _resultRow(BuildContext context, String label, String value) {
+    final t = context.tokens;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: TextStyle(color: Colors.white.withAlpha(150))),
-        Text(value,
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold)),
+        Text(label, style: context.text.bodyMedium?.copyWith(color: t.inkMuted)),
+        Text(
+          value,
+          style: context.typeExtras.bodyStrong.copyWith(color: t.ink),
+        ),
       ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: Text(
-          _testStarted ? 'Mock Test - $_examType' : 'Mock Test',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          if (_testStarted)
-            TextButton(
-              onPressed: _finishTest,
-              child: const Text(
-                'Submit',
-                style: TextStyle(color: Colors.redAccent),
-              ),
+    final t = context.tokens;
+    return NexusScreen(
+      title: _testStarted ? 'Mock Test - $_examType' : 'Mock Test',
+      actions: [
+        if (_testStarted)
+          TextButton(
+            onPressed: _finishTest,
+            child: Text(
+              'Submit',
+              style: context.text.labelLarge?.copyWith(color: t.statusAbsent),
             ),
-        ],
-      ),
-      body: _testStarted ? _buildTestView() : _buildSetupView(),
+          ),
+      ],
+      body: _testStarted ? _buildTestView(context) : _buildSetupView(context),
     );
   }
 
-  Widget _buildSetupView() {
+  Widget _buildSetupView(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildExamTypeSelector(),
-          const SizedBox(height: 16),
-          _buildSubjectSelector(),
-          const SizedBox(height: 16),
-          _buildDurationSelector(),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _isLoading ? null : _startTest,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Colors.deepPurpleAccent.withAlpha(220),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.play_arrow),
-              label: Text(
-                _isLoading ? 'Preparing Test...' : 'Start Mock Test',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
+          _buildExamTypeSelector(context),
+          const SizedBox(height: AppSpace.md),
+          _buildSubjectSelector(context),
+          const SizedBox(height: AppSpace.md),
+          _buildDurationSelector(context),
+          const SizedBox(height: AppSpace.lg),
+          NexusButton(
+            label: _isLoading ? 'Preparing Test...' : 'Start Mock Test',
+            icon: Icons.play_arrow,
+            isLoading: _isLoading,
+            onPressed: _isLoading ? null : _startTest,
+            fullWidth: true,
           ),
-          if (_results.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            const Text(
-              'Past Results',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpace.md),
+            NexusBanner(
+              message: _error!,
+              kind: NexusBannerKind.error,
+              actionLabel: 'Retry',
+              onAction: _startTest,
             ),
-            const SizedBox(height: 12),
+          ],
+          if (_results.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.xl),
+            const NexusSectionHeader(title: 'Past Results', spaceAbove: 0),
             ...List.generate(_results.length.clamp(0, 10), (i) {
-              return _buildResultCard(_results[i]);
+              return _buildResultCard(context, _results[i]);
             }),
           ],
         ],
@@ -384,8 +359,9 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
-  Widget _buildExamTypeSelector() {
+  Widget _buildExamTypeSelector(BuildContext context) {
     return _buildSelectorRow(
+      context,
       'Exam Type',
       ['JEE', 'NEET', 'CBSE Board', 'State Board'],
       _examType,
@@ -396,8 +372,9 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
-  Widget _buildSubjectSelector() {
+  Widget _buildSubjectSelector(BuildContext context) {
     return _buildSelectorRow(
+      context,
       'Subject',
       _subjectsByExam[_examType]!,
       _selectedSubject,
@@ -405,8 +382,9 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
-  Widget _buildDurationSelector() {
+  Widget _buildDurationSelector(BuildContext context) {
     return _buildSelectorRow(
+      context,
       'Duration',
       ['60 min', '120 min', '180 min'],
       '$_durationMinutes min',
@@ -417,58 +395,52 @@ class _MockTestScreenState extends State<MockTestScreen> {
   }
 
   Widget _buildSelectorRow(
+    BuildContext context,
     String label,
     List<String> options,
     String selected,
     ValueChanged<String?> onChanged,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(14),
-      ),
+    final t = context.tokens;
+    return NexusCard(
+      padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
+            style: context.text.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
-              color: Colors.white.withAlpha(150),
+              color: t.inkMuted,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpace.xs),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: AppSpace.xs,
+            runSpacing: AppSpace.xs,
             children: options.map((opt) {
               final isSelected = opt == selected;
               return GestureDetector(
                 onTap: () => onChanged(opt),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: AnimatedContainer(
+                  duration: AppMotion.tap,
+                  curve: AppMotion.standard,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpace.md,
+                    vertical: AppSpace.xs,
+                  ),
                   decoration: BoxDecoration(
-                    color: isSelected
-                        ? Colors.deepPurpleAccent.withAlpha(40)
-                        : Colors.white.withAlpha(10),
-                    borderRadius: BorderRadius.circular(10),
+                    color: isSelected ? t.primaryTint : t.surfaceAlt,
+                    borderRadius: AppRadius.brSm,
                     border: Border.all(
-                      color: isSelected
-                          ? Colors.deepPurpleAccent
-                          : Colors.white.withAlpha(15),
+                      color: isSelected ? t.primary : t.border,
                     ),
                   ),
                   child: Text(
                     opt,
-                    style: TextStyle(
-                      color: isSelected
-                          ? Colors.deepPurpleAccent
-                          : Colors.white.withAlpha(150),
+                    style: context.text.labelMedium?.copyWith(
+                      color: isSelected ? t.primary : t.inkMuted,
                       fontWeight: FontWeight.bold,
-                      fontSize: 13,
                     ),
                   ),
                 ),
@@ -477,24 +449,28 @@ class _MockTestScreenState extends State<MockTestScreen> {
           ),
         ],
       ),
-    ).animate().fade();
+    );
   }
 
-  Widget _buildTestView() {
+  Widget _buildTestView(BuildContext context) {
+    final t = context.tokens;
     final q = _questions[_currentIndex];
     final options = List<String>.from(q['options'] ?? []);
     final progress = (_currentIndex + 1) / _questions.length;
     final minutes = _timeLeft ~/ 60;
     final seconds = _timeLeft % 60;
-    final timerColor =
-        _timeLeft > 300 ? Colors.greenAccent : _timeLeft > 60 ? Colors.orangeAccent : Colors.redAccent;
+    final timerColor = _timeLeft > 300
+        ? t.statusPresent
+        : _timeLeft > 60
+        ? t.statusLate
+        : t.statusAbsent;
     final isMarked = _markedForReview.contains(_currentIndex);
 
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Color(0xFF1E1E1E)),
+          padding: const EdgeInsets.all(AppSpace.md),
+          decoration: BoxDecoration(color: t.surface),
           child: Column(
             children: [
               Row(
@@ -502,25 +478,27 @@ class _MockTestScreenState extends State<MockTestScreen> {
                 children: [
                   Text(
                     'Q${_currentIndex + 1}/${_questions.length}',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16),
+                    style: context.text.titleMedium?.copyWith(
+                      color: t.ink,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpace.sm,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
-                      color: timerColor.withAlpha(30),
-                      borderRadius: BorderRadius.circular(10),
+                      color: timerColor.withValues(alpha: 0.10),
+                      borderRadius: AppRadius.brSm,
                     ),
                     child: Row(
                       children: [
                         Icon(Icons.timer, color: timerColor, size: 18),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: AppSpace.xxs),
                         Text(
                           '$minutes:${seconds.toString().padLeft(2, '0')}',
-                          style: TextStyle(
+                          style: context.text.labelMedium?.copyWith(
                             color: timerColor,
                             fontWeight: FontWeight.bold,
                           ),
@@ -530,25 +508,26 @@ class _MockTestScreenState extends State<MockTestScreen> {
                   ),
                   Text(
                     'Score: $_score',
-                    style: const TextStyle(
-                        color: Colors.tealAccent, fontWeight: FontWeight.bold),
+                    style: context.text.labelMedium?.copyWith(
+                      color: t.statusPresent,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpace.xs),
               LinearProgressIndicator(
                 value: progress,
-                backgroundColor: Colors.white.withAlpha(15),
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(Colors.deepPurpleAccent),
-                borderRadius: BorderRadius.circular(4),
+                backgroundColor: t.surfaceAlt,
+                valueColor: AlwaysStoppedAnimation<Color>(t.primary),
+                borderRadius: AppRadius.brSm,
               ),
             ],
           ),
         ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpace.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -557,10 +536,10 @@ class _MockTestScreenState extends State<MockTestScreen> {
                     Expanded(
                       child: Text(
                         q['question'] ?? '',
-                        style: const TextStyle(
-                          fontSize: 18,
+                        style: context.text.titleMedium?.copyWith(
+                          height: 1.4,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: t.ink,
                         ),
                       ),
                     ),
@@ -568,35 +547,35 @@ class _MockTestScreenState extends State<MockTestScreen> {
                       onPressed: _toggleMarkForReview,
                       icon: Icon(
                         isMarked ? Icons.bookmark : Icons.bookmark_border,
-                        color: isMarked ? Colors.amberAccent : Colors.white38,
+                        color: isMarked ? t.secondary : t.inkFaint,
                       ),
                       tooltip: 'Mark for Review',
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: AppSpace.lg),
                 ...List.generate(options.length, (i) {
                   final isCorrect = i == q['correctIndex'];
                   final isSelected = _selectedAnswer == i;
-                  Color bgColor = const Color(0xFF1E1E1E);
-                  Color borderColor = Colors.white.withAlpha(15);
+                  Color bgColor = t.surface;
+                  Color borderColor = t.border;
                   if (_answered) {
                     if (isCorrect) {
-                      bgColor = Colors.green.withAlpha(30);
-                      borderColor = Colors.greenAccent;
+                      bgColor = t.statusPresent.withValues(alpha: 0.12);
+                      borderColor = t.statusPresent;
                     } else if (isSelected && !isCorrect) {
-                      bgColor = Colors.red.withAlpha(30);
-                      borderColor = Colors.redAccent;
+                      bgColor = t.statusAbsent.withValues(alpha: 0.12);
+                      borderColor = t.statusAbsent;
                     }
                   }
                   return GestureDetector(
                     onTap: () => _selectAnswer(i),
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(AppSpace.md),
                       decoration: BoxDecoration(
                         color: bgColor,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: AppRadius.brMd,
                         border: Border.all(color: borderColor),
                       ),
                       child: Row(
@@ -605,58 +584,52 @@ class _MockTestScreenState extends State<MockTestScreen> {
                             width: 28,
                             height: 28,
                             decoration: BoxDecoration(
-                              color: isSelected
-                                  ? Colors.deepPurpleAccent.withAlpha(40)
-                                  : Colors.white.withAlpha(10),
-                              borderRadius: BorderRadius.circular(8),
+                              color: isSelected ? t.primaryTint : t.surfaceAlt,
+                              borderRadius: AppRadius.brSm,
                             ),
                             child: Center(
                               child: Text(
                                 String.fromCharCode(65 + i),
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? Colors.deepPurpleAccent
-                                      : Colors.white.withAlpha(150),
+                                style: context.text.labelMedium?.copyWith(
+                                  color: isSelected ? t.primary : t.inkMuted,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: AppSpace.sm),
                           Expanded(
                             child: Text(
                               options[i],
-                              style: TextStyle(
-                                color: Colors.white.withAlpha(200),
-                                fontSize: 14,
+                              style: context.text.bodyMedium?.copyWith(
+                                color: t.ink,
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ).animate().fade(delay: Duration(milliseconds: 50 * i));
+                  );
                 }),
                 if (_answered) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpace.md),
                   Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(AppSpace.md),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withAlpha(15),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue.withAlpha(30)),
+                      color: t.primaryTint,
+                      borderRadius: AppRadius.brSm,
+                      border: Border.all(color: t.primaryTintBorder),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.lightbulb,
-                            color: Colors.amberAccent, size: 20),
+                        Icon(Icons.lightbulb, color: t.secondary, size: 20),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             q['explanation'] ?? '',
-                            style: TextStyle(
-                              color: Colors.white.withAlpha(180),
+                            style: context.text.bodySmall?.copyWith(
+                              color: t.ink,
                               height: 1.5,
                             ),
                           ),
@@ -664,58 +637,47 @@ class _MockTestScreenState extends State<MockTestScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _nextQuestion,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        backgroundColor: Colors.tealAccent,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        _currentIndex < _questions.length - 1
-                            ? 'Next Question'
-                            : 'Submit Test',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
+                  const SizedBox(height: AppSpace.md),
+                  NexusButton(
+                    label: _currentIndex < _questions.length - 1
+                        ? 'Next Question'
+                        : 'Submit Test',
+                    onPressed: _nextQuestion,
+                    fullWidth: true,
                   ),
                 ],
               ],
             ),
           ),
         ),
-        _buildQuestionNavigator(),
+        _buildQuestionNavigator(context),
       ],
     );
   }
 
-  Widget _buildQuestionNavigator() {
+  Widget _buildQuestionNavigator(BuildContext context) {
+    final t = context.tokens;
     return Container(
       height: 60,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: const BoxDecoration(color: Color(0xFF1E1E1E)),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: AppSpace.xs),
+      decoration: BoxDecoration(color: t.surface),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: _questions.length,
         itemBuilder: (context, index) {
           final isCurrent = index == _currentIndex;
           final isMarked = _markedForReview.contains(index);
-          final isAnswered = index < _currentIndex || (index == _currentIndex && _answered);
+          final isAnswered =
+              index < _currentIndex || (index == _currentIndex && _answered);
           Color color;
           if (isCurrent) {
-            color = Colors.deepPurpleAccent;
+            color = t.primary;
           } else if (isMarked) {
-            color = Colors.amberAccent;
+            color = t.secondary;
           } else if (isAnswered) {
-            color = Colors.tealAccent;
+            color = t.statusPresent;
           } else {
-            color = Colors.white24;
+            color = t.inkFaint;
           }
 
           return GestureDetector(
@@ -731,8 +693,8 @@ class _MockTestScreenState extends State<MockTestScreen> {
               height: 36,
               margin: const EdgeInsets.symmetric(horizontal: 3),
               decoration: BoxDecoration(
-                color: color.withAlpha(40),
-                borderRadius: BorderRadius.circular(8),
+                color: color.withValues(alpha: 0.10),
+                borderRadius: AppRadius.brSm,
                 border: Border.all(
                   color: color,
                   width: isCurrent ? 2 : 1,
@@ -741,10 +703,9 @@ class _MockTestScreenState extends State<MockTestScreen> {
               child: Center(
                 child: Text(
                   '${index + 1}',
-                  style: TextStyle(
+                  style: context.text.labelSmall?.copyWith(
                     color: color,
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
                   ),
                 ),
               ),
@@ -755,57 +716,48 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
-  Widget _buildResultCard(Map<String, dynamic> r) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
+  Widget _buildResultCard(BuildContext context, Map<String, dynamic> r) {
+    final t = context.tokens;
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.xs),
+      padding: const EdgeInsets.all(AppSpace.sm),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: Colors.deepPurpleAccent.withAlpha(30),
-              borderRadius: BorderRadius.circular(8),
+              color: t.primaryTint,
+              borderRadius: AppRadius.brSm,
             ),
-            child: const Icon(Icons.quiz, color: Colors.deepPurpleAccent, size: 18),
+            child: Icon(Icons.quiz, color: t.primary, size: 18),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpace.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   '${r['exam']} - ${r['subject']}',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(200),
-                    fontSize: 13,
+                  style: context.text.labelLarge?.copyWith(
+                    color: t.ink,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   'Score: ${r['score']}/${r['total']} (${r['percentage']}%) • ${r['duration']}min',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(120),
-                    fontSize: 11,
-                  ),
+                  style: context.text.labelSmall?.copyWith(color: t.inkMuted),
                 ),
               ],
             ),
           ),
           Text(
             '${r['percentage']}%',
-            style: TextStyle(
+            style: context.typeExtras.bodyStrong.copyWith(
               color: (r['percentage'] as int) >= 70
-                  ? Colors.greenAccent
+                  ? t.statusPresent
                   : (r['percentage'] as int) >= 50
-                      ? Colors.orangeAccent
-                      : Colors.redAccent,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
+                  ? t.secondary
+                  : t.statusAbsent,
             ),
           ),
         ],

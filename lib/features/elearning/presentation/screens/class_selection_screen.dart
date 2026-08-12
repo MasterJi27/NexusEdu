@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
 
 class ClassSelectionScreen extends StatefulWidget {
   const ClassSelectionScreen({super.key});
@@ -39,141 +40,134 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: const Text(
-          'Choose Class',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    return NexusScreen(
+      title: 'Choose Class',
+      actions: [
+        TextButton.icon(
+          onPressed: () async {
+            await LearnerProfileService.setSelectedClass(null);
+            if (!context.mounted) return;
+            setState(() => _selectedClass = null);
+            context.go('/feed');
+          },
+          icon: const Icon(Icons.person_outline, size: 18),
+          label: const Text('Guest'),
         ),
-        backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          TextButton.icon(
-            onPressed: () async {
-              await LearnerProfileService.setSelectedClass(null);
-              if (!context.mounted) return;
-              setState(() => _selectedClass = null);
-              context.go('/feed');
-            },
-            icon: const Icon(Icons.person_outline, size: 18),
-            label: const Text('Guest'),
-          ),
-        ],
-      ),
+      ],
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.lg,
+                AppSpace.sm,
+                AppSpace.lg,
+                AppSpace.xl,
+              ),
               children: [
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(14),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withAlpha(22)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.route, color: Colors.amberAccent, size: 30),
-                      SizedBox(width: 14),
-                      Expanded(
-                        child: Text(
-                          'Class selection locks Shorts, topics, and certificates to your syllabus.',
-                          style: TextStyle(color: Colors.white70, height: 1.35),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
+                _buildInfoBanner(context),
+                const SizedBox(height: AppSpace.lg),
                 for (final className in LearningCatalog.classes)
-                  _buildClassCard(
-                    className,
-                  ).animate().fade().slideY(begin: 0.08),
+                  _buildClassCard(context, className),
               ],
             ),
     );
   }
 
-  Widget _buildClassCard(String className) {
+  Widget _buildInfoBanner(BuildContext context) {
+    final t = context.tokens;
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: BoxDecoration(
+        color: t.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: t.border),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.route, color: t.secondaryFill, size: 30),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Text(
+              'Class selection locks Shorts, topics, and certificates to your syllabus.',
+              style: context.text.bodySmall?.copyWith(
+                color: t.inkMuted,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClassCard(BuildContext context, String className) {
+    final t = context.tokens;
     final subjects = LearningCatalog.subjectsFor(className);
     final topics = LearningCatalog.topicsFor(className, null);
     final isSelected = _selectedClass == className;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
       decoration: BoxDecoration(
-        color: isSelected
-            ? Colors.deepPurpleAccent.withAlpha(42)
-            : Colors.white.withAlpha(12),
-        borderRadius: BorderRadius.circular(18),
+        color: isSelected ? t.primaryTint : t.surface,
+        borderRadius: AppRadius.brMd,
         border: Border.all(
-          color: isSelected
-              ? Colors.deepPurpleAccent
-              : Colors.white.withAlpha(24),
+          color: isSelected ? t.primary : t.border,
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: AppRadius.brMd,
         onTap: () => _selectClass(className),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpace.md),
           child: Row(
             children: [
               Container(
                 height: 54,
                 width: 54,
                 decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent.withAlpha(32),
-                  borderRadius: BorderRadius.circular(16),
+                  color: t.primaryTint,
+                  borderRadius: AppRadius.brSm,
                 ),
                 child: Icon(
                   isSelected ? Icons.check_circle : Icons.school,
-                  color: isSelected
-                      ? Colors.tealAccent
-                      : Colors.deepPurpleAccent,
+                  color: isSelected ? t.statusPresent : t.primary,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: AppSpace.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       className,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: context.text.titleMedium?.copyWith(color: t.ink),
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: AppSpace.xxs),
                     Text(
                       '${subjects.length} subjects • ${topics.length} syllabus topics',
-                      style: const TextStyle(color: Colors.white54),
+                      style: context.text.bodySmall?.copyWith(color: t.inkMuted),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: AppSpace.sm),
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: AppSpace.xs,
+                      runSpacing: AppSpace.xs,
                       children: [
                         for (final subject in subjects.take(3))
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 5,
+                              horizontal: AppSpace.xs,
+                              vertical: AppSpace.xxs,
                             ),
                             decoration: BoxDecoration(
-                              color: subject.color.withAlpha(32),
-                              borderRadius: BorderRadius.circular(999),
+                              color: subject.color.withValues(alpha: 0.2),
+                              borderRadius: AppRadius.brPill,
                             ),
                             child: Text(
                               subject.name,
-                              style: TextStyle(
+                              style: context.text.labelSmall?.copyWith(
                                 color: subject.color,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
@@ -182,7 +176,7 @@ class _ClassSelectionScreenState extends State<ClassSelectionScreen> {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.white38),
+              Icon(Icons.chevron_right, color: t.inkFaint),
             ],
           ),
         ),

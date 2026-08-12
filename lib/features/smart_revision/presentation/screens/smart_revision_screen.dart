@@ -1,8 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/local_history_store.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_chip_group.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_section_header.dart';
 
 class SmartRevisionScreen extends StatefulWidget {
   const SmartRevisionScreen({super.key});
@@ -20,6 +26,8 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
   bool _showAnswer = false;
   int _reviewedCount = 0;
   List<Map<String, dynamic>> _revisionHistory = [];
+  String? _error;
+  static const _historyStore = LocalHistoryStore('revision_history');
 
   static const List<String> _subjects = [
     'Physics',
@@ -43,26 +51,18 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
   }
 
   Future<void> _loadHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('revision_history') ?? [];
-    setState(() {
-      _revisionHistory = saved
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
-    });
+    final history = await _historyStore.load();
+    setState(() => _revisionHistory = history);
   }
 
   Future<void> _saveHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      'revision_history',
-      _revisionHistory.map((e) => json.encode(e)).toList(),
-    );
+    await _historyStore.save(_revisionHistory);
   }
 
   Future<void> _startRevision() async {
     setState(() {
       _isGenerating = true;
+      _error = null;
       _keyPoints = [];
       _currentCardIndex = 0;
       _showAnswer = false;
@@ -77,20 +77,11 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
         "Generate 15-20 key points covering the most important topics. "
         "No markdown, no code fences. Raw JSON only.";
 
-    final result = await AiService.generateCurriculumContent(prompt);
-
-    if (!mounted) return;
-
     try {
-      String jsonStr = result.trim();
-      if (jsonStr.startsWith('```')) {
-        final lines = jsonStr.split('\n');
-        if (lines.first.startsWith('```')) lines.removeAt(0);
-        if (lines.isNotEmpty && lines.last.startsWith('```')) lines.removeLast();
-        jsonStr = lines.join('\n').trim();
-      }
+      final result = await AiService.generateStructured(prompt);
+      if (!mounted) return;
 
-      final List<dynamic> parsed = json.decode(jsonStr);
+      final List<dynamic> parsed = json.decode(result);
       setState(() {
         _keyPoints = parsed
             .map((e) => Map<String, dynamic>.from(e as Map))
@@ -106,8 +97,12 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
       });
       if (_revisionHistory.length > 20) _revisionHistory.removeLast();
       _saveHistory();
-    } catch (_) {
-      setState(() => _isGenerating = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isGenerating = false;
+        _error = "Couldn't generate key points. Check your connection and try again.";
+      });
     }
   }
 
@@ -133,26 +128,29 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
   }
 
   void _showCompletionDialog() {
+    final t = context.tokens;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Column(
+        backgroundColor: t.surface,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.brLg),
+        title: Column(
           children: [
-            Icon(Icons.celebration, color: Colors.tealAccent, size: 48),
-            SizedBox(height: 8),
+            Icon(Icons.celebration, color: t.statusPresent, size: 48),
+            const SizedBox(height: AppSpace.xs),
             Text(
               'Revision Complete!',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: ctx.text.titleMedium?.copyWith(
+                color: t.ink,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),
         content: Text(
           'You reviewed ${_keyPoints.length} key points in $_selectedSubject.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white.withAlpha(180)),
+          style: ctx.text.bodyMedium?.copyWith(color: t.inkMuted),
         ),
         actions: [
           TextButton(
@@ -160,8 +158,10 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
               Navigator.pop(ctx);
               setState(() => _keyPoints.clear());
             },
-            child: const Text('Done',
-                style: TextStyle(color: Colors.tealAccent)),
+            child: Text(
+              'Done',
+              style: ctx.text.labelLarge?.copyWith(color: t.statusPresent),
+            ),
           ),
         ],
       ),
@@ -170,67 +170,49 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: const Text(
-          'Smart Revision',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+    return NexusScreen(
+      title: 'Smart Revision',
       body: _keyPoints.isNotEmpty ? _buildReviewView() : _buildSetupView(),
     );
   }
 
   Widget _buildSetupView() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildModeSelector(),
-          const SizedBox(height: 16),
-          _buildSubjectSelector(),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpace.md),
+          NexusChipGroup(
+            label: 'Subject',
+            options: _subjects,
+            selected: {_selectedSubject},
+            onChanged: (s) => setState(() => _selectedSubject = s.first),
+          ),
+          const SizedBox(height: AppSpace.lg),
           SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
+            child: NexusButton(
+              label: _isGenerating ? 'Generating Key Points...' : 'Start Revision',
+              icon: Icons.replay,
+              isLoading: _isGenerating,
               onPressed: _isGenerating ? null : _startRevision,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Colors.deepPurpleAccent.withAlpha(220),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              icon: _isGenerating
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.replay),
-              label: Text(
-                _isGenerating ? 'Generating Key Points...' : 'Start Revision',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+              fullWidth: true,
             ),
           ),
-          if (_revisionHistory.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            const Text(
-              'Revision History',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpace.md),
+            NexusBanner(
+              message: _error!,
+              kind: NexusBannerKind.error,
+              actionLabel: 'Retry',
+              onAction: _startRevision,
             ),
-            const SizedBox(height: 12),
+          ],
+          if (_revisionHistory.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.md),
+            const NexusSectionHeader(title: 'Revision History', spaceAbove: 0),
             ...List.generate(_revisionHistory.length.clamp(0, 10), (i) {
               return _buildHistoryItem(_revisionHistory[i], i);
             }),
@@ -241,40 +223,37 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
   }
 
   Widget _buildModeSelector() {
+    final t = context.tokens;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpace.md),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
+        color: t.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: t.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Revision Mode',
-            style: TextStyle(
-              fontSize: 16,
+            style: context.text.titleMedium?.copyWith(
+              color: t.ink,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.sm),
           ...['1-hour', '3-hour', 'Overnight'].map((mode) {
             final isSelected = _revisionMode == mode;
             return GestureDetector(
               onTap: () => setState(() => _revisionMode = mode),
               child: Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(14),
+                margin: const EdgeInsets.only(bottom: AppSpace.xs),
+                padding: const EdgeInsets.all(AppSpace.md),
                 decoration: BoxDecoration(
-                  color: isSelected
-                      ? Colors.deepPurpleAccent.withAlpha(30)
-                      : Colors.black.withAlpha(30),
-                  borderRadius: BorderRadius.circular(12),
+                  color: isSelected ? t.primaryTint : t.surfaceAlt,
+                  borderRadius: AppRadius.brMd,
                   border: Border.all(
-                    color: isSelected
-                        ? Colors.deepPurpleAccent
-                        : Colors.white.withAlpha(15),
+                    color: isSelected ? t.primaryTintBorder : t.border,
                   ),
                 ),
                 child: Row(
@@ -285,37 +264,31 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
                           : mode == '3-hour'
                               ? Icons.hourglass_top
                               : Icons.nightlight_round,
-                      color: isSelected
-                          ? Colors.deepPurpleAccent
-                          : Colors.white.withAlpha(100),
+                      color: isSelected ? t.primary : t.inkMuted,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: AppSpace.sm),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             mode,
-                            style: TextStyle(
-                              color: isSelected
-                                  ? Colors.deepPurpleAccent
-                                  : Colors.white.withAlpha(200),
+                            style: context.text.labelLarge?.copyWith(
+                              color: isSelected ? t.primary : t.ink,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
                             _modeDescriptions[mode] ?? '',
-                            style: TextStyle(
-                              color: Colors.white.withAlpha(120),
-                              fontSize: 11,
+                            style: context.text.labelSmall?.copyWith(
+                              color: t.inkMuted,
                             ),
                           ),
                         ],
                       ),
                     ),
                     if (isSelected)
-                      const Icon(Icons.check_circle,
-                          color: Colors.deepPurpleAccent),
+                      Icon(Icons.check_circle, color: t.primary),
                   ],
                 ),
               ),
@@ -323,82 +296,24 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
           }),
         ],
       ),
-    ).animate().fade().slideY(begin: -0.06);
-  }
-
-  Widget _buildSubjectSelector() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Subject',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withAlpha(150),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _subjects.map((subject) {
-              final isSelected = subject == _selectedSubject;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedSubject = subject),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? Colors.deepPurpleAccent.withAlpha(40)
-                        : Colors.white.withAlpha(10),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: isSelected
-                          ? Colors.deepPurpleAccent
-                          : Colors.white.withAlpha(15),
-                    ),
-                  ),
-                  child: Text(
-                    subject,
-                    style: TextStyle(
-                      color: isSelected
-                          ? Colors.deepPurpleAccent
-                          : Colors.white.withAlpha(150),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    ).animate().fade(delay: 100.ms);
+    );
   }
 
   Widget _buildReviewView() {
+    final t = context.tokens;
     final point = _keyPoints[_currentCardIndex];
     final importance = point['importance'] ?? 'Review';
     final importanceColor = importance == 'Critical'
-        ? Colors.redAccent
+        ? t.statusAbsent
         : importance == 'Important'
-            ? Colors.orangeAccent
-            : Colors.greenAccent;
+            ? t.statusLate
+            : t.statusPresent;
 
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Color(0xFF1E1E1E)),
+          padding: const EdgeInsets.all(AppSpace.md),
+          color: t.surface,
           child: Column(
             children: [
               Row(
@@ -406,98 +321,96 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
                 children: [
                   Text(
                     '${_currentCardIndex + 1}/${_keyPoints.length}',
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold),
+                    style: context.text.labelLarge?.copyWith(
+                      color: t.ink,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpace.sm,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: importanceColor.withAlpha(30),
-                      borderRadius: BorderRadius.circular(10),
+                      color: importanceColor.withValues(alpha: 0.12),
+                      borderRadius: AppRadius.brSm,
                     ),
                     child: Text(
                       importance,
-                      style: TextStyle(
+                      style: context.text.labelSmall?.copyWith(
                         color: importanceColor,
-                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                   Text(
                     'Reviewed: $_reviewedCount',
-                    style: TextStyle(
-                      color: Colors.white.withAlpha(150),
-                      fontSize: 12,
+                    style: context.text.labelSmall?.copyWith(
+                      color: t.inkMuted,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpace.xs),
               LinearProgressIndicator(
                 value: (_currentCardIndex + 1) / _keyPoints.length,
-                backgroundColor: Colors.white.withAlpha(15),
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(Colors.deepPurpleAccent),
-                borderRadius: BorderRadius.circular(4),
+                backgroundColor: t.surfaceAlt,
+                valueColor: AlwaysStoppedAnimation<Color>(t.primary),
+                borderRadius: AppRadius.brSm,
               ),
             ],
           ),
         ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpace.lg),
             child: GestureDetector(
               onTap: () => setState(() => _showAnswer = !_showAnswer),
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
+                duration: AppMotion.enter,
                 child: Container(
                   key: ValueKey('$_currentCardIndex-$_showAnswer'),
                   width: double.infinity,
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(AppSpace.lg),
                   decoration: BoxDecoration(
                     color: _showAnswer
-                        ? Colors.tealAccent.withAlpha(15)
-                        : const Color(0xFF1E1E1E),
-                    borderRadius: BorderRadius.circular(24),
+                        ? t.statusPresent.withValues(alpha: 0.08)
+                        : t.surface,
+                    borderRadius: AppRadius.brLg,
                     border: Border.all(
                       color: _showAnswer
-                          ? Colors.tealAccent.withAlpha(40)
-                          : Colors.white.withAlpha(15),
+                          ? t.statusPresent.withValues(alpha: 0.4)
+                          : t.border,
                     ),
                   ),
                   child: Column(
                     children: [
                       Text(
                         point['topic'] ?? '',
-                        style: TextStyle(
-                          color: Colors.white.withAlpha(120),
-                          fontSize: 12,
+                        style: context.text.labelSmall?.copyWith(
+                          color: t.inkMuted,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpace.sm),
                       Text(
                         _showAnswer
                             ? (point['detail'] ?? '')
                             : (point['keyPoint'] ?? ''),
                         textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white.withAlpha(220),
-                          fontSize: 20,
+                        style: context.text.titleMedium?.copyWith(
+                          color: t.ink,
                           fontWeight: FontWeight.bold,
                           height: 1.4,
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: AppSpace.lg),
                       Text(
                         _showAnswer
                             ? 'Tap to see question'
                             : 'Tap to reveal explanation',
-                        style: TextStyle(
-                          color: Colors.white.withAlpha(80),
-                          fontSize: 12,
+                        style: context.text.labelSmall?.copyWith(
+                          color: t.inkFaint,
                         ),
                       ),
                     ],
@@ -508,48 +421,27 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpace.md),
           child: Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: NexusButton(
+                  label: 'Previous',
+                  icon: Icons.arrow_back,
+                  variant: NexusButtonVariant.secondary,
                   onPressed: _currentCardIndex > 0 ? _previousCard : null,
-                  icon: const Icon(Icons.arrow_back, size: 18),
-                  label: const Text('Previous'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: BorderSide(
-                        color: Colors.white.withAlpha(40)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpace.sm),
               Expanded(
-                child: FilledButton.icon(
+                child: NexusButton(
+                  label: _currentCardIndex < _keyPoints.length - 1
+                      ? 'Next'
+                      : 'Finish',
+                  icon: _currentCardIndex < _keyPoints.length - 1
+                      ? Icons.arrow_forward
+                      : Icons.check,
                   onPressed: _nextCard,
-                  icon: Icon(
-                    _currentCardIndex < _keyPoints.length - 1
-                        ? Icons.arrow_forward
-                        : Icons.check,
-                    size: 18,
-                  ),
-                  label: Text(
-                    _currentCardIndex < _keyPoints.length - 1
-                        ? 'Next'
-                        : 'Finish',
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.tealAccent,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
                 ),
               ),
             ],
@@ -560,42 +452,34 @@ class _SmartRevisionScreenState extends State<SmartRevisionScreen> {
   }
 
   Widget _buildHistoryItem(Map<String, dynamic> item, int index) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
+    final t = context.tokens;
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.xs),
+      padding: const EdgeInsets.all(AppSpace.sm),
       child: Row(
         children: [
-          Icon(Icons.history, color: Colors.white.withAlpha(80), size: 18),
-          const SizedBox(width: 10),
+          Icon(Icons.history, color: t.inkMuted, size: 18),
+          const SizedBox(width: AppSpace.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   '${item['subject']} - ${item['mode']}',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(200),
-                    fontSize: 13,
+                  style: context.text.labelLarge?.copyWith(
+                    color: t.ink,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   '${item['count']} key points',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(120),
-                    fontSize: 11,
-                  ),
+                  style: context.text.labelSmall?.copyWith(color: t.inkMuted),
                 ),
               ],
             ),
           ),
           IconButton(
-            icon: Icon(Icons.delete_outline,
-                color: Colors.redAccent.withAlpha(150), size: 18),
+            icon: Icon(Icons.delete_outline, color: t.statusAbsent, size: 18),
             onPressed: () {
               setState(() => _revisionHistory.removeAt(index));
               _saveHistory();

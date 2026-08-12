@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:nexus_edu/core/services/ai_service.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
-import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
+import 'package:nexus_edu/core/services/streak_notification_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_chip_group.dart';
+import 'package:nexus_edu/shared/widgets/nexus_list_row.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_section_header.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -13,11 +19,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const Color _bg = Color(0xFF0F1115);
-  static const Color _surface = Color(0xFF171A21);
-  static const Color _accent = Color(0xFF7C5CFF);
-
-  bool _dailyReminder = true;
   bool _streakAlerts = true;
   double _dailyGoal = 3;
   String _appLanguage = 'English';
@@ -34,18 +35,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _dailyReminder = prefs.getBool('settings_daily_reminder') ?? true;
       _streakAlerts = prefs.getBool('settings_streak_alerts') ?? true;
       _dailyGoal = prefs.getDouble('settings_daily_goal') ?? 3;
       _appLanguage = prefs.getString('settings_app_language') ?? 'English';
       _classLevel = prefs.getString('settings_class_level') ?? '10';
       _board = prefs.getString('settings_board') ?? 'CBSE';
     });
-  }
-
-  Future<void> _saveBool(String key, bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
   }
 
   Future<void> _saveString(String key, String value) async {
@@ -58,224 +53,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setDouble(key, value);
   }
 
-  bool get _hasGeminiKey {
-    final key = AiService.apiKey?.trim();
-    return key != null && key.isNotEmpty && key != 'your_api_key_here';
-  }
-
-  Future<void> _showApiKeySheet({
-    required String title,
-    required String label,
-    required Future<void> Function(String value) onSave,
-  }) async {
-    final controller = TextEditingController();
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: _surface,
-      showDragHandle: true,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            18,
-            4,
-            18,
-            MediaQuery.of(context).viewInsets.bottom + 18,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Stored locally. Do not share this key in screenshots or support chats.',
-                style: const TextStyle(color: Colors.white60),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: controller,
-                obscureText: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: label,
-                  prefixIcon: const Icon(Icons.vpn_key_outlined),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () async {
-                    final value = controller.text.trim();
-                    if (value.isNotEmpty) {
-                      await onSave(value);
-                    }
-                    if (!context.mounted) return;
-                    Navigator.pop(context);
-                    if (mounted) setState(() {});
-                  },
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Save key'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    controller.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     final settings = AppSettings.instance;
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: _bg,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
+    return NexusScreen(
+      title: 'Settings',
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.lg,
+          AppSpace.md,
+          AppSpace.lg,
+          AppSpace.xxl,
+        ),
         children: [
-          _Section(
-            title: 'Appearance',
-            icon: Icons.palette_outlined,
-            children: [
-              _ThemeModeSelector(
-                value: settings.themeMode,
-                onChanged: (mode) {
-                  settings.setThemeMode(mode);
-                  setState(() {});
-                },
-              ),
-            ],
+          const NexusSectionHeader(title: 'Appearance', spaceAbove: 0),
+          NexusCard(
+            child: _ThemeModeSelector(
+              value: settings.themeMode,
+              onChanged: (mode) {
+                settings.setThemeMode(mode);
+                setState(() {});
+              },
+            ),
           ),
-          const SizedBox(height: 14),
-          _Section(
-            title: 'AI setup',
-            icon: Icons.smart_toy_outlined,
-            children: [
-              _ApiStatusTile(
-                connected: _hasGeminiKey,
-                connectedTitle: 'OpenRouter connected',
-                missingTitle: 'OpenRouter API key needed',
-                subtitle: 'Powers AI Tutor, Notes, Quiz, Scanner and all AI tools.',
-                onPressed: () => _showApiKeySheet(
-                  title: 'OpenRouter key',
-                  label: 'OpenRouter API key',
-                  onSave: AiService.saveApiKey,
+          const NexusSectionHeader(title: 'Study preferences'),
+          NexusCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SliderRow(
+                  label: 'Daily goal',
+                  value: _dailyGoal,
+                  display: '${_dailyGoal.round()} hrs',
+                  min: 1,
+                  max: 10,
+                  divisions: 9,
+                  onChanged: (value) {
+                    setState(() => _dailyGoal = value);
+                    _saveDouble('settings_daily_goal', value);
+                  },
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _Section(
-            title: 'Study preferences',
-            icon: Icons.school_outlined,
-            children: [
-              _SliderRow(
-                label: 'Daily goal',
-                value: _dailyGoal,
-                display: '${_dailyGoal.round()} hrs',
-                min: 1,
-                max: 10,
-                divisions: 9,
-                onChanged: (value) {
-                  setState(() => _dailyGoal = value);
-                  _saveDouble('settings_daily_goal', value);
-                },
-              ),
-              _DropdownRow(
-                label: 'Class',
-                value: _classLevel,
-                options: const ['6', '7', '8', '9', '10', '11', '12'],
-                onChanged: (value) {
-                  setState(() => _classLevel = value);
-                  _saveString('settings_class_level', value);
-                },
-              ),
-              _DropdownRow(
-                label: 'Board',
-                value: _board,
-                options: const ['CBSE', 'ICSE', 'State Board'],
-                onChanged: (value) {
-                  setState(() => _board = value);
-                  _saveString('settings_board', value);
-                },
-              ),
-              _DropdownRow(
-                label: 'Language',
-                value: _appLanguage,
-                options: const ['English', 'Hindi', 'Hinglish'],
-                onChanged: (value) {
-                  setState(() => _appLanguage = value);
-                  _saveString('settings_app_language', value);
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _Section(
-            title: 'Notifications',
-            icon: Icons.notifications_none,
-            children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Daily study reminder'),
-                subtitle: const Text('Gentle reminder to keep your streak'),
-                value: _dailyReminder,
-                onChanged: (value) {
-                  setState(() => _dailyReminder = value);
-                  _saveBool('settings_daily_reminder', value);
-                },
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Streak alerts'),
-                subtitle: const Text('Notify before your streak breaks'),
-                value: _streakAlerts,
-                onChanged: (value) {
-                  setState(() => _streakAlerts = value);
-                  _saveBool('settings_streak_alerts', value);
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _Section(
-            title: 'Play Store & data',
-            icon: Icons.verified_user_outlined,
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.privacy_tip_outlined, color: _accent),
-                title: const Text('Privacy policy'),
-                subtitle: const Text('Required for Play Store listing'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/privacy-policy'),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: Colors.redAccent,
+                const SizedBox(height: AppSpace.sm),
+                _DropdownRow(
+                  label: 'Class',
+                  value: _classLevel,
+                  options: const ['6', '7', '8', '9', '10', '11', '12'],
+                  onChanged: (value) {
+                    setState(() => _classLevel = value);
+                    _saveString('settings_class_level', value);
+                  },
                 ),
-                title: const Text('Clear local data'),
-                subtitle: const Text('Notes, preferences and cached progress'),
-                onTap: _confirmClearData,
-              ),
-            ],
+                const SizedBox(height: AppSpace.sm),
+                _DropdownRow(
+                  label: 'Board',
+                  value: _board,
+                  options: const ['CBSE', 'ICSE', 'State Board'],
+                  onChanged: (value) {
+                    setState(() => _board = value);
+                    _saveString('settings_board', value);
+                  },
+                ),
+                const SizedBox(height: AppSpace.sm),
+                _DropdownRow(
+                  label: 'Language',
+                  value: _appLanguage,
+                  options: const ['English', 'Hindi', 'Hinglish'],
+                  onChanged: (value) {
+                    setState(() => _appLanguage = value);
+                    _saveString('settings_app_language', value);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const NexusSectionHeader(title: 'Notifications'),
+          NexusCard(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Streak alerts'),
+                  subtitle: const Text(
+                    'A 7pm reminder before your streak breaks',
+                  ),
+                  value: _streakAlerts,
+                  onChanged: (value) async {
+                    setState(() => _streakAlerts = value);
+                    await StreakNotificationService.instance.setEnabled(value);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          value
+                              ? 'Streak alerts on — reminder set for 7pm.'
+                              : 'Streak alerts off.',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const NexusSectionHeader(title: 'AI & data'),
+          NexusCard(
+            child: Column(
+              children: [
+                NexusListRow(
+                  leadingIcon: Icons.data_usage,
+                  title: 'AI usage & tokens',
+                  subtitle: 'See your token usage and daily AI limit',
+                  trailing: Icon(Icons.chevron_right, color: t.inkFaint),
+                  onTap: () => context.push('/ai-usage'),
+                ),
+                NexusListRow(
+                  leadingIcon: Icons.delete_outline,
+                  title: 'Clear local data',
+                  subtitle: 'Notes, preferences and cached progress',
+                  onTap: _confirmClearData,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -291,13 +190,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'This removes notes, settings, progress and cached app data from this device.',
         ),
         actions: [
-          TextButton(
+          NexusButton(
+            label: 'Cancel',
+            variant: NexusButtonVariant.secondary,
+            size: NexusButtonSize.small,
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
           ),
-          FilledButton(
+          NexusButton(
+            label: 'Clear',
+            variant: NexusButtonVariant.danger,
+            size: NexusButtonSize.small,
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Clear'),
           ),
         ],
       ),
@@ -315,79 +218,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    required this.icon,
-    required this.children,
-  });
-
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF171A21),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF2A2F3A)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: const Color(0xFF7C5CFF), size: 20),
-              const SizedBox(width: 9),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...children,
-        ],
-      ),
-    );
-  }
-}
-
+/// Light and dark are both real, complete themes (`lib/core/theme/app_theme.dart`),
+/// so this genuinely switches the app's appearance rather than confirming a
+/// fixed one — picking "Light" here used to render the same dark surface.
 class _ThemeModeSelector extends StatelessWidget {
   const _ThemeModeSelector({required this.value, required this.onChanged});
 
   final ThemeMode value;
   final ValueChanged<ThemeMode> onChanged;
 
+  static const _labels = {
+    ThemeMode.system: 'System',
+    ThemeMode.light: 'Light',
+    ThemeMode.dark: 'Dark',
+  };
+
   @override
   Widget build(BuildContext context) {
-    final entries = [
-      (ThemeMode.system, 'System', Icons.brightness_auto_outlined),
-      (ThemeMode.light, 'Light', Icons.light_mode_outlined),
-      (ThemeMode.dark, 'Dark', Icons.dark_mode_outlined),
-    ];
-    return Row(
-      children: [
-        for (final entry in entries)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                avatar: Icon(entry.$3, size: 16),
-                label: Text(entry.$2),
-                selected: value == entry.$1,
-                onSelected: (_) => onChanged(entry.$1),
-              ),
-            ),
-          ),
-      ],
+    return NexusChipGroup(
+      label: 'Theme',
+      options: _labels.values.toList(),
+      selected: {_labels[value]!},
+      onChanged: (selection) {
+        final label = selection.first;
+        final mode = _labels.entries
+            .firstWhere((entry) => entry.value == label)
+            .key;
+        onChanged(mode);
+      },
     );
   }
 }
@@ -413,13 +271,17 @@ class _SliderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Expanded(child: Text(label)),
-            Text(display, style: const TextStyle(color: Color(0xFF7C5CFF))),
+            Expanded(child: Text(label, style: context.text.bodyMedium)),
+            Text(
+              display,
+              style: context.typeExtras.figure.copyWith(color: t.primary),
+            ),
           ],
         ),
         Slider(
@@ -430,42 +292,6 @@ class _SliderRow extends StatelessWidget {
           onChanged: onChanged,
         ),
       ],
-    );
-  }
-}
-
-class _ApiStatusTile extends StatelessWidget {
-  const _ApiStatusTile({
-    required this.connected,
-    required this.connectedTitle,
-    required this.missingTitle,
-    required this.subtitle,
-    required this.onPressed,
-  });
-
-  final bool connected;
-  final String connectedTitle;
-  final String missingTitle;
-  final String subtitle;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        connected ? Icons.check_circle : Icons.error_outline,
-        color: connected ? Colors.greenAccent : Colors.orangeAccent,
-      ),
-      title: Text(
-        connected ? connectedTitle : missingTitle,
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-      trailing: TextButton(
-        onPressed: onPressed,
-        child: Text(connected ? 'Change' : 'Add', style: const TextStyle(color: Color(0xFF7C5CFF))),
-      ),
     );
   }
 }
@@ -485,26 +311,24 @@ class _DropdownRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          DropdownButton<String>(
-            value: value,
-            dropdownColor: const Color(0xFF171A21),
-            items: options
-                .map(
-                  (option) =>
-                      DropdownMenuItem(value: option, child: Text(option)),
-                )
-                .toList(),
-            onChanged: (value) {
-              if (value != null) onChanged(value);
-            },
-          ),
-        ],
-      ),
+    final t = context.tokens;
+    return Row(
+      children: [
+        Expanded(child: Text(label, style: context.text.bodyMedium)),
+        DropdownButton<String>(
+          value: value,
+          dropdownColor: t.surface,
+          items: options
+              .map(
+                (option) =>
+                    DropdownMenuItem(value: option, child: Text(option)),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value != null) onChanged(value);
+          },
+        ),
+      ],
     );
   }
 }

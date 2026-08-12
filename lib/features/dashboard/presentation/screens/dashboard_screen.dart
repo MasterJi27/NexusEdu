@@ -1,17 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
 import 'package:nexus_edu/core/services/gamification_service.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/services/subject_progress_service.dart';
-import 'package:nexus_edu/core/widgets/animated_background.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_section_header.dart';
 
-const Color _bg = Color(0xFF0F1115);
-const Color _accent = Color(0xFF7C5CFF);
-const Color _success = Color(0xFF55D6A4);
-const Color _warning = Color(0xFFFFC857);
-
+/// The Learn tab home. Rebuilt on the token system: no continuous background
+/// animation (the previous `AnimatedBackground` repainted three blurred glows
+/// and fifteen particles at 60fps behind this entire screen, forever), and no
+/// invented leaderboard — the old preview pinned "You" at a hardcoded rank 3
+/// with 2,450 XP regardless of the signed-in user's actual data. See
+/// `PRODUCT.md`: a number that cannot be traced to the user's own activity
+/// must not be presented as fact.
+///
+/// Ordering is the daily flow, not a menu: the plan is first ("do these three
+/// today"), then search, then reference material (syllabus, subjects, tools).
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -20,12 +31,12 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-
-  final ScrollController _scrollController = ScrollController(keepScrollOffset: false);
+  final ScrollController _scrollController = ScrollController(
+    keepScrollOffset: false,
+  );
   final GamificationService _gamification = GamificationService();
   final SubjectProgressService _subjectProgress = SubjectProgressService();
   String? _selectedClass;
-  String _searchQuery = '';
 
   @override
   void initState() {
@@ -47,164 +58,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final settings = AppSettings.instance;
-    final daysLeft = settings.examDate?.difference(DateTime.now()).inDays;
-
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: _bg,
-        elevation: 0,
-        titleSpacing: 16,
-        title: Row(
-          children: [
-            Container(
-              height: 34,
-              width: 34,
-              decoration: BoxDecoration(
-                color: _accent.withAlpha(35),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.school, color: _accent, size: 20),
-            ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'NexusEdu',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          _HeaderMetric(
-            icon: Icons.local_fire_department,
-            label: '${_gamification.streak}',
-            color: _warning,
-            onTap: () => context.push('/leaderboard'),
-          ),
-          const SizedBox(width: 8),
-          _HeaderMetric(
-            icon: Icons.stars_rounded,
-            label: '${_gamification.xp} XP',
-            color: _accent,
-            onTap: () => context.push('/leaderboard'),
-          ),
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () => context.push('/settings'),
-            icon: const Icon(Icons.settings_outlined, color: Colors.white70),
-          ),
-        ],
-      ),
-      body: AnimatedBackground(
-        enableParticles: true,
-        child: ListView(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-          children: [
-            _SearchBar(
-              onChanged: (v) => setState(() => _searchQuery = v),
-              onTap: () => context.push('/search'),
-            ),
-            const SizedBox(height: 14),
-            _HeroPanel(
-              selectedClass: _selectedClass,
-              examName: settings.examName,
-              daysLeft: daysLeft,
-              onClassTap: () => context.push('/elearning-class'),
-              gamification: _gamification,
-            ),
-            const SizedBox(height: 14),
-            _ExamCountdown(
-              examName: settings.examName,
-              daysLeft: daysLeft,
-            ),
-            const SizedBox(height: 22),
-            _SectionHeader(
-              title: 'Continue Learning',
-              actionLabel: 'Class',
-              onAction: () => context.push('/elearning-class'),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _PrimaryActionCard(
-                    icon: Icons.auto_stories_outlined,
-                    title: 'My Syllabus',
-                    subtitle: _selectedClass ?? 'Choose class',
-                    color: _accent,
-                    onTap: () => context.push('/elearning-class'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _PrimaryActionCard(
-                    icon: Icons.smart_display_outlined,
-                    title: 'Shorts',
-                    subtitle: 'Topic-wise videos',
-                    color: const Color(0xFFFF6B6B),
-                    onTap: () => context.go('/feed'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-            _SectionHeader(title: 'Your Subjects', actionLabel: 'All', onAction: () => context.push('/elearning-class')),
-            const SizedBox(height: 10),
-            _SubjectProgressSection(subjectProgress: _subjectProgress),
-            const SizedBox(height: 22),
-            const _SectionHeader(title: 'Quick Actions'),
-            const SizedBox(height: 10),
-            _QuickActionsGrid(
-              items: [
-                _HomeAction('AI Tutor', 'Ask doubts clearly', Icons.smart_toy_outlined, '/tutor', _accent),
-                _HomeAction('Daily Quiz', '10 questions, earn XP', Icons.quiz_outlined, '/daily-quiz', const Color(0xFFFF8A65)),
-                _HomeAction('Study Timer', 'Pomodoro focus', Icons.timer_outlined, '/study-timer', _success),
-                _HomeAction('Flashcards', 'Active recall practice', Icons.style_outlined, '/flashcards', const Color(0xFF64B5F6)),
-                _HomeAction('Mistake Journal', 'Review errors', Icons.error_outline, '/mistake-journal', const Color(0xFFFF6B6B)),
-                _HomeAction('Smart Notes', 'Generate and revise', Icons.note_alt_outlined, '/notes', _warning),
-              ],
-              onTap: _openRoute,
-            ),
-            const SizedBox(height: 22),
-            _SectionHeader(title: 'Leaderboard', actionLabel: 'See All', onAction: () => context.push('/leaderboard')),
-            const SizedBox(height: 10),
-            _LeaderboardPreview(gamification: _gamification),
-            const SizedBox(height: 22),
-            const _SectionHeader(title: 'Exam & Progress'),
-            const SizedBox(height: 10),
-            _ActionGrid(
-              items: [
-                _HomeAction('Mock Test', 'Exam-like practice', Icons.assignment_outlined, '/mock-test', const Color(0xFF64B5F6)),
-                _HomeAction('Performance', 'Weak topics and scores', Icons.insights_outlined, '/performance-test', _success),
-                _HomeAction('Book Scanner', 'Scan textbook pages', Icons.document_scanner_outlined, '/scanner', _success),
-                _HomeAction('Study Planner', 'Plan today', Icons.event_note_outlined, '/ai-study-planner', _warning),
-              ],
-              onTap: _openRoute,
-            ),
-            const SizedBox(height: 22),
-            const _SectionHeader(title: 'More'),
-            const SizedBox(height: 10),
-            _MoreList(
-              items: [
-                _HomeAction('AI Tools Library', 'All advanced agents in one place', Icons.auto_awesome_outlined, '/ai-agents', _accent),
-                _HomeAction('India Education Hub', 'NCERT, JEE, NEET and Hindi tools', Icons.flag_outlined, '/india-hub', const Color(0xFFFFB74D)),
-                _HomeAction('Settings', 'Appearance, privacy and study prefs', Icons.tune_outlined, '/settings', _success),
-              ],
-              onTap: _openRoute,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _openRoute(String route) {
     HapticFeedback.lightImpact();
     if (route == '/feed' || route == '/notes' || route == '/tutor') {
@@ -213,35 +66,540 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     context.push(route);
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final settings = AppSettings.instance;
+    final daysLeft = settings.examDate?.difference(DateTime.now()).inDays;
+
+    return NexusScreen(
+      title: 'Nexus Edu',
+      titleWidget: Row(
+        children: [
+          Container(
+            height: 34,
+            width: 34,
+            decoration: BoxDecoration(
+              color: t.primaryTint,
+              borderRadius: AppRadius.brSm,
+            ),
+            child: Icon(Icons.school_outlined, color: t.primary, size: 20),
+          ),
+          const SizedBox(width: AppSpace.xs),
+          const Expanded(
+            child: Text(
+              'Nexus Edu',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        _HeaderMetric(
+          icon: Icons.local_fire_department_outlined,
+          label: '${_gamification.streak}',
+          onTap: () => context.push('/leaderboard'),
+        ),
+        const SizedBox(width: AppSpace.xs),
+        _HeaderMetric(
+          icon: Icons.stars_outlined,
+          label: '${_gamification.xp} XP',
+          onTap: () => context.push('/leaderboard'),
+        ),
+        IconButton(
+          tooltip: 'Settings',
+          onPressed: () => context.push('/settings'),
+          icon: const Icon(Icons.settings_outlined),
+        ),
+      ],
+      body: ListView(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.lg,
+            AppSpace.xs,
+            AppSpace.lg,
+            AppSpace.xxl,
+          ),
+          children: [
+            if (!SecureApiService().isLoggedIn) ...[
+              _GuestBanner(onSignIn: () => context.go('/login')),
+              const SizedBox(height: AppSpace.md),
+            ],
+            _StreakBanner(firstWinEarnedToday: _gamification.firstWinEarnedToday),
+            const SizedBox(height: AppSpace.md),
+            _TodayPlan(
+              subjects: _subjectProgress.subjects,
+              onTap: _openRoute,
+            ),
+            const SizedBox(height: AppSpace.md),
+            _SearchBar(onTap: () => context.push('/search')),
+            const SizedBox(height: AppSpace.md),
+            _HeroPanel(
+              selectedClass: _selectedClass,
+              examName: settings.examName,
+              daysLeft: daysLeft,
+              onClassTap: () => context.push('/elearning-class'),
+              gamification: _gamification,
+            ),
+            const SizedBox(height: AppSpace.md),
+            NexusSectionHeader(
+              title: 'Continue learning',
+              actionLabel: 'Class',
+              onAction: () => context.push('/elearning-class'),
+            ),
+            _ContinueLearning(
+              subjects: _subjectProgress.subjects,
+              selectedClass: _selectedClass,
+              onTap: _openRoute,
+            ),
+            NexusSectionHeader(
+              title: 'Your subjects',
+              actionLabel: 'All',
+              onAction: () => context.push('/elearning-class'),
+            ),
+            _SubjectProgressSection(subjectProgress: _subjectProgress),
+            NexusSectionHeader(title: 'Quick actions'),
+            _QuickActionsGrid(
+              items: const [
+                _HomeAction(
+                  'Book Scanner',
+                  'Scan a page, ask about it',
+                  Icons.document_scanner_outlined,
+                  '/scanner',
+                ),
+                _HomeAction(
+                  'Flashcards',
+                  'Active recall practice',
+                  Icons.style_outlined,
+                  '/flashcards',
+                ),
+                _HomeAction(
+                  'Multi-language tutor',
+                  'Ask in your own language',
+                  Icons.translate_outlined,
+                  '/multi-lang-tutor',
+                ),
+                _HomeAction(
+                  'Focus Timer',
+                  'Pomodoro focus',
+                  Icons.timer_outlined,
+                  '/focus',
+                ),
+              ],
+              onTap: _openRoute,
+            ),
+            NexusSectionHeader(title: 'More'),
+            _MoreList(
+              items: const [
+                _HomeAction(
+                  'All features',
+                  'Curated tools, searchable',
+                  Icons.apps_outlined,
+                  '/features',
+                ),
+              ],
+              onTap: _openRoute,
+            ),
+          ],
+        ),
+    );
+  }
+}
+
+/// The daily flow: one revision task, one quiz, one doubt. This is the only
+/// section that tells the student what to do *next* — everything else on the
+/// home is reference material. Each row has a check that the student taps
+/// when they finish it; the checks reset every day.
+class _TodayPlan extends StatefulWidget {
+  const _TodayPlan({required this.subjects, required this.onTap});
+
+  final List<SubjectProgress> subjects;
+  final ValueChanged<String> onTap;
+
+  @override
+  State<_TodayPlan> createState() => _TodayPlanState();
+}
+
+class _TodayPlanState extends State<_TodayPlan> {
+  static const _planKeys = {
+    'quiz': 'daily_plan_quiz',
+    'revise': 'daily_plan_revise',
+    'ask': 'daily_plan_ask',
+  };
+  final Set<String> _done = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  String get _todayKey {
+    final now = DateTime.now();
+    return '${now.year}-${now.month}-${now.day}';
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefix = '$_todayKey:';
+    final done = <String>{
+      for (final key in _planKeys.keys)
+        if (prefs.getBool('$prefix${_planKeys[key]}') == true) key,
+    };
+    if (!mounted) return;
+    setState(() => _done
+      ..clear()
+      ..addAll(done));
+  }
+
+  Future<void> _toggle(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    final storeKey = '$_todayKey:${_planKeys[key]}';
+    final nowDone = !_done.contains(key);
+    await prefs.setBool(storeKey, nowDone);
+    if (!mounted) return;
+    setState(() {
+      if (nowDone) {
+        _done.add(key);
+      } else {
+        _done.remove(key);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final subjects = widget.subjects;
+    final started = subjects.where((s) => s.completedChapters > 0).toList();
+    final weakest = started.isEmpty
+        ? null
+        : started.reduce(
+            (a, b) => a.progress <= b.progress ? a : b,
+          );
+    final doneCount = _done.length;
+    final allDone = doneCount == _planKeys.length;
+
+    return NexusCard(
+      padding: const EdgeInsets.all(AppSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.today_outlined, color: t.primary, size: 20),
+              const SizedBox(width: AppSpace.xs),
+              Text(
+                "Today's plan",
+                style: context.text.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                allDone ? 'Done! 🎉' : '$doneCount/${_planKeys.length} done',
+                style: context.text.bodySmall?.copyWith(
+                  color: allDone ? t.statusPresent : t.inkFaint,
+                  fontWeight: allDone ? FontWeight.bold : null,
+                ),
+              ),
+            ],
+          ),
+          if (doneCount > 0) ...[
+            const SizedBox(height: AppSpace.xs),
+            ClipRRect(
+              borderRadius: AppRadius.brSm,
+              child: LinearProgressIndicator(
+                value: doneCount / _planKeys.length,
+                backgroundColor: t.border,
+                valueColor: AlwaysStoppedAnimation(
+                  allDone ? t.statusPresent : t.primary,
+                ),
+                minHeight: 4,
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpace.xxs),
+          _PlanRow(
+            done: _done.contains('quiz'),
+            icon: Icons.quiz_outlined,
+            iconColor: t.primary,
+            title: 'Daily Quiz',
+            subtitle: '10 questions — earn XP',
+            onTap: () => widget.onTap('/daily-quiz'),
+            onCheck: () => _toggle('quiz'),
+          ),
+          _PlanRow(
+            done: _done.contains('revise'),
+            icon: Icons.auto_stories_outlined,
+            iconColor: t.secondary,
+            title: weakest == null
+                ? 'Start: My syllabus'
+                : 'Revise: ${weakest.name}',
+            subtitle: weakest == null
+                ? 'Begin your first chapter'
+                : '${weakest.completedChapters}/${weakest.totalChapters} chapters done',
+            onTap: () => widget.onTap(
+              weakest == null ? '/elearning-class' : '/smart-revision',
+            ),
+            onCheck: () => _toggle('revise'),
+          ),
+          _PlanRow(
+            done: _done.contains('ask'),
+            icon: Icons.smart_toy_outlined,
+            iconColor: t.statusLate,
+            title: 'Ask Nexus',
+            subtitle: 'Stuck? Ask in your own words',
+            onTap: () => widget.onTap('/tutor'),
+            onCheck: () => _toggle('ask'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanRow extends StatelessWidget {
+  const _PlanRow({
+    required this.done,
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    required this.onCheck,
+  });
+
+  final bool done;
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final VoidCallback onCheck;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: AppRadius.brMd,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: AppSpace.minTapTarget),
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: t.border.withValues(alpha: 0.5)),
+          ),
+        ),
+        child: Row(
+          children: [
+            GestureDetector(
+              onTap: onCheck,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: done
+                      ? t.statusPresent
+                      : iconColor.withValues(alpha: 0.12),
+                  borderRadius: AppRadius.brSm,
+                ),
+                child: Icon(
+                  done ? Icons.check : icon,
+                  color: done ? t.surface : iconColor,
+                  size: 19,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: context.typeExtras.bodyStrong.copyWith(
+                      decoration: done ? TextDecoration.lineThrough : null,
+                      color: done ? t.inkFaint : null,
+                    ),
+                  ),
+                  Text(subtitle, style: context.text.bodySmall),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: t.inkFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The "continue learning" pair. The primary card is data-driven: it resumes
+/// the most recently studied subject when there is one, so the home reflects
+/// the student's actual activity instead of a static menu.
+class _ContinueLearning extends StatelessWidget {
+  const _ContinueLearning({
+    required this.subjects,
+    required this.selectedClass,
+    required this.onTap,
+  });
+
+  final List<SubjectProgress> subjects;
+  final String? selectedClass;
+  final ValueChanged<String> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final resumed = subjects
+        .where((s) => s.lastStudied != null)
+        .toList()
+      ..sort((a, b) => b.lastStudied!.compareTo(a.lastStudied!));
+    final last = resumed.isEmpty ? null : resumed.first;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _PrimaryActionCard(
+            icon: Icons.auto_stories_outlined,
+            title: last == null ? 'My syllabus' : 'Resume ${last.name}',
+            subtitle: last == null
+                ? selectedClass ?? 'Choose class'
+                : '${last.completedChapters}/${last.totalChapters} chapters done',
+            onTap: () => onTap(
+              last == null ? '/elearning-class' : '/elearning-class',
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        Expanded(
+          child: _PrimaryActionCard(
+            icon: Icons.flag_outlined,
+            title: 'NCERT solutions',
+            subtitle: 'Board-aligned answers',
+            onTap: () => onTap('/ncert-solutions'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GuestBanner extends StatelessWidget {
+  const _GuestBanner({required this.onSignIn});
+  final VoidCallback onSignIn;
+
+  @override
+  Widget build(BuildContext context) {
+    return NexusBanner(
+      message:
+          "You're browsing as a guest. Study tools work — sign in to save progress, streaks and quizzes.",
+      kind: NexusBannerKind.info,
+      actionLabel: 'Sign in',
+      onAction: onSignIn,
+    );
+  }
+}
+
+/// Behavioral nudge: warns when the shield consumed a missed day, celebrates
+/// the first-win XP bonus, or invites the student to their first win.
+class _StreakBanner extends StatefulWidget {
+  const _StreakBanner({required this.firstWinEarnedToday});
+
+  final bool firstWinEarnedToday;
+
+  @override
+  State<_StreakBanner> createState() => _StreakBannerState();
+}
+
+class _StreakBannerState extends State<_StreakBanner> {
+  bool? _quizDone;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final todayKey = '${now.year}-${now.month}-${now.day}';
+    final quizDone = prefs.getBool('$todayKey:${_TodayPlanState._planKeys['quiz']}') == true;
+    if (!mounted) return;
+    setState(() => _quizDone = quizDone);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.instance;
+    final streak = settings.streak;
+    final quizDone = _quizDone ?? false;
+
+    if (streak > 0 && settings.streakSaverUsed) {
+      // A day was skipped but the shield kept the streak — the next missed
+      // day will break it, so the warning is urgent.
+      return NexusBanner(
+        message:
+            'Your streak shield saved your $streak-day streak once. Study today or it resets.',
+        kind: NexusBannerKind.warning,
+        actionLabel: 'Study now',
+        onAction: () => context.push('/focus'),
+      );
+    }
+
+    if (widget.firstWinEarnedToday) {
+      return NexusBanner(
+        message:
+            'First win of the day! You earned a +${GamificationService.firstWinBonusXp} XP bonus.',
+        kind: NexusBannerKind.info,
+        actionLabel: 'View progress',
+        onAction: () => context.push('/profile'),
+      );
+    }
+
+    if (streak <= 1 && !quizDone) {
+      // A fresh or reset streak with nothing earned today: the activation
+      // nudge. After load() the streak is always >= 1, so this targets
+      // newcomers and students whose streak just broke.
+      return NexusBanner(
+        message: 'Earn your first win — complete today\'s Daily Quiz.',
+        kind: NexusBannerKind.info,
+        actionLabel: 'Start quiz',
+        onAction: () => context.push('/daily-quiz'),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
 }
 
 class _SearchBar extends StatelessWidget {
-  const _SearchBar({required this.onChanged, required this.onTap});
-
-  final ValueChanged<String> onChanged;
+  const _SearchBar({required this.onTap});
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final t = context.tokens;
+    return NexusCard(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF171A21),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF2A2F3A)),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.search, color: Colors.white38, size: 20),
-            SizedBox(width: 10),
-            Text(
-              'Search topics, quizzes, doubts...',
-              style: TextStyle(color: Colors.white38, fontSize: 14),
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.md,
+        vertical: AppSpace.sm,
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.search, color: t.inkFaint, size: 20),
+          const SizedBox(width: AppSpace.sm),
+          Text(
+            'Search topics, quizzes, doubts',
+            style: context.text.bodyMedium?.copyWith(color: t.inkFaint),
+          ),
+        ],
       ),
     );
   }
@@ -251,32 +609,36 @@ class _HeaderMetric extends StatelessWidget {
   const _HeaderMetric({
     required this.icon,
     required this.label,
-    required this.color,
     required this.onTap,
   });
-
   final IconData icon;
   final String label;
-  final Color color;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: AppRadius.brPill,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.xs,
+          vertical: AppSpace.xxs,
+        ),
         decoration: BoxDecoration(
-          color: color.withAlpha(24),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: color.withAlpha(90)),
+          color: t.primaryTint,
+          borderRadius: AppRadius.brPill,
+          border: Border.all(color: t.primaryTintBorder),
         ),
         child: Row(
           children: [
-            Icon(icon, color: color, size: 15),
-            const SizedBox(width: 5),
-            Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
+            Icon(icon, color: t.primary, size: 15),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: context.text.labelMedium?.copyWith(color: t.primary),
+            ),
           ],
         ),
       ),
@@ -301,13 +663,8 @@ class _HeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF171A21),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2A2F3A)),
-      ),
+    final t = context.tokens;
+    return NexusCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -318,128 +675,94 @@ class _HeroPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      selectedClass == null ? 'Ready to study?' : 'Ready, $selectedClass learner?',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      selectedClass == null
+                          ? 'Ready to study?'
+                          : 'Ready, $selectedClass learner?',
+                      style: context.text.bodySmall,
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
+                    const SizedBox(height: AppSpace.xxs),
+                    Text(
                       'Your study dashboard',
-                      style: TextStyle(color: Colors.white, fontSize: 24, height: 1.1, fontWeight: FontWeight.w900),
+                      style: context.text.headlineMedium,
                     ),
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.xs,
+                  vertical: AppSpace.xxs,
+                ),
                 decoration: BoxDecoration(
-                  color: _accent.withAlpha(24),
-                  borderRadius: BorderRadius.circular(12),
+                  color: t.primaryTint,
+                  borderRadius: AppRadius.brSm,
                 ),
                 child: Text(
                   'Lv.${gamification.level}',
-                  style: TextStyle(color: _accent, fontSize: 14, fontWeight: FontWeight.bold),
+                  style: context.text.labelMedium?.copyWith(color: t.primary),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.md),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(AppSpace.sm),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E232D),
-              borderRadius: BorderRadius.circular(8),
+              color: t.surfaceAlt,
+              borderRadius: AppRadius.brMd,
             ),
             child: Column(
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Level ${gamification.level} — ${gamification.levelTitle}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                    Text('${gamification.xpProgress}/${gamification.xpForNextLevel} XP',
-                        style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    Text(
+                      'Level ${gamification.level} — ${gamification.levelTitle}',
+                      style: context.typeExtras.bodyStrong,
+                    ),
+                    Text(
+                      '${gamification.xpProgress}/${gamification.xpForNextLevel} XP',
+                      style: context.text.bodySmall,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpace.xs),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: AppRadius.brSm,
                   child: LinearProgressIndicator(
                     value: gamification.levelProgress,
-                    backgroundColor: Colors.white10,
-                    valueColor: const AlwaysStoppedAnimation(_accent),
+                    backgroundColor: t.border,
+                    valueColor: AlwaysStoppedAnimation(t.primary),
                     minHeight: 6,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.sm),
           Row(
             children: [
               Expanded(
                 child: _SmallStatus(
                   icon: Icons.school_outlined,
                   title: selectedClass ?? 'No class selected',
-                  subtitle: selectedClass == null ? 'Tap to set' : 'Syllabus active',
-                  color: _accent,
+                  subtitle: selectedClass == null
+                      ? 'Tap to set'
+                      : 'Syllabus active',
                   onTap: onClassTap,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpace.xs),
               Expanded(
                 child: _SmallStatus(
                   icon: Icons.event_available_outlined,
-                  title: daysLeft == null ? 'Exam target' : '$daysLeft days left',
+                  title: daysLeft == null
+                      ? 'Exam target'
+                      : '$daysLeft days left',
                   subtitle: daysLeft == null ? 'Set in Profile' : examName,
-                  color: const Color(0xFFFFC857),
                 ),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ExamCountdown extends StatelessWidget {
-  const _ExamCountdown({required this.examName, required this.daysLeft});
-
-  final String examName;
-  final int? daysLeft;
-
-  @override
-  Widget build(BuildContext context) {
-    if (daysLeft == null) return const SizedBox.shrink();
-    final color = daysLeft! <= 30 ? const Color(0xFFFF6B6B) : daysLeft! <= 90 ? const Color(0xFFFFC857) : _success;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.event, color: color, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(examName, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14)),
-                Text('$daysLeft days remaining', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text('Countdown', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -449,11 +772,11 @@ class _ExamCountdown extends StatelessWidget {
 
 class _SubjectProgressSection extends StatelessWidget {
   const _SubjectProgressSection({required this.subjectProgress});
-
   final SubjectProgressService subjectProgress;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     final subjects = subjectProgress.subjects.take(4).toList();
     return SizedBox(
       height: 140,
@@ -462,50 +785,69 @@ class _SubjectProgressSection extends StatelessWidget {
         itemCount: subjects.length,
         itemBuilder: (context, index) {
           final s = subjects[index];
+          final color = s.progress >= 0.7
+              ? t.statusPresent
+              : s.progress >= 0.4
+              ? t.statusLate
+              : t.inkMuted;
           return Container(
             width: 150,
-            margin: const EdgeInsets.only(right: 12),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF171A21),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF2A2F3A)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(s.icon, style: const TextStyle(fontSize: 20)),
-                    const Spacer(),
-                    Text(
-                      '${(s.progress * 100).round()}%',
-                      style: TextStyle(
-                        color: s.progress >= 0.7 ? _success : s.progress >= 0.4 ? _warning : Colors.white54,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+            margin: const EdgeInsets.only(right: AppSpace.sm),
+            child: NexusCard(
+              padding: const EdgeInsets.all(AppSpace.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(s.icon, style: const TextStyle(fontSize: 20)),
+                      const Spacer(),
+                      Text(
+                        '${(s.progress * 100).round()}%',
+                        style: context.text.labelMedium?.copyWith(color: color),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(s.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                const SizedBox(height: 4),
-                Text('${s.completedChapters}/${s.totalChapters} chapters',
-                    style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                const Spacer(),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: s.progress,
-                    backgroundColor: Colors.white10,
-                    valueColor: AlwaysStoppedAnimation(
-                      s.progress >= 0.7 ? _success : s.progress >= 0.4 ? _warning : _accent,
-                    ),
-                    minHeight: 4,
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: AppSpace.xs),
+                  Text(
+                    s.name,
+                    style: context.typeExtras.bodyStrong,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: AppSpace.xxs),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${s.completedChapters}/${s.totalChapters} chapters',
+                          style: context.text.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (s.progress >= 0.85 && s.progress < 1)
+                        Text(
+                          'Almost there',
+                          style: context.text.labelSmall?.copyWith(
+                            color: t.statusPresent,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const Spacer(),
+                  ClipRRect(
+                    borderRadius: AppRadius.brSm,
+                    child: LinearProgressIndicator(
+                      value: s.progress,
+                      backgroundColor: t.border,
+                      valueColor: AlwaysStoppedAnimation(color),
+                      minHeight: 4,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -516,153 +858,12 @@ class _SubjectProgressSection extends StatelessWidget {
 
 class _QuickActionsGrid extends StatelessWidget {
   const _QuickActionsGrid({required this.items, required this.onTap});
-
   final List<_HomeAction> items;
   final ValueChanged<String> onTap;
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.95,
-      ),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return InkWell(
-          onTap: () => onTap(item.route),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF171A21),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF2A2F3A)),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(item.icon, color: item.color, size: 26),
-                const SizedBox(height: 6),
-                Text(
-                  item.title,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 11),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  item.subtitle,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white38, fontSize: 9),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _LeaderboardPreview extends StatelessWidget {
-  const _LeaderboardPreview({required this.gamification});
-
-  final GamificationService gamification;
-
-  @override
-  Widget build(BuildContext context) {
-    final top3 = GamificationService.leaderboard.take(3).toList();
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF171A21),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2A2F3A)),
-      ),
-      child: Column(
-        children: [
-          for (int i = 0; i < top3.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 24,
-                    child: Text(
-                      i == 0 ? '🥇' : i == 1 ? '🥈' : '🥉',
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: top3[i]['isUser'] == true ? _accent : Colors.white10,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        (top3[i]['name'] as String)[0],
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      top3[i]['name'],
-                      style: TextStyle(
-                        color: top3[i]['isUser'] == true ? _accent : Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${top3[i]['xp']} XP',
-                    style: TextStyle(
-                      color: top3[i]['isUser'] == true ? _accent : Colors.white54,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.actionLabel, this.onAction});
-
-  final String title;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800)),
-        ),
-        if (actionLabel != null)
-          TextButton(onPressed: onAction, child: Text(actionLabel!)),
-      ],
-    );
+    return _ActionGrid(items: items, onTap: onTap);
   }
 }
 
@@ -671,40 +872,47 @@ class _SmallStatus extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.color,
     this.onTap,
   });
-
   final IconData icon;
   final String title;
   final String subtitle;
-  final Color color;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: AppRadius.brSm,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        constraints: const BoxConstraints(minHeight: AppSpace.minTapTarget),
+        padding: const EdgeInsets.all(AppSpace.xs),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E232D),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF2A2F3A)),
+          color: t.surfaceAlt,
+          borderRadius: AppRadius.brSm,
         ),
         child: Row(
           children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 8),
+            Icon(icon, color: t.primary, size: 20),
+            const SizedBox(width: AppSpace.xs),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
-                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.typeExtras.bodyStrong,
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -720,40 +928,46 @@ class _PrimaryActionCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.color,
     required this.onTap,
   });
-
   final IconData icon;
   final String title;
   final String subtitle;
-  final Color color;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final t = context.tokens;
+    return NexusCard(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 120),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF171A21),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF2A2F3A)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 22),
-            Text(title, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 4),
-            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white60, fontSize: 12)),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: t.primaryTint,
+                  borderRadius: AppRadius.brSm,
+                ),
+                child: Icon(icon, color: t.primary, size: 20),
+              ),
+              const Spacer(),
+              Icon(Icons.chevron_right, color: t.inkFaint),
+            ],
+          ),
+          const SizedBox(height: AppSpace.md),
+          Text(title, style: context.text.titleMedium),
+          const SizedBox(height: AppSpace.xxs),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.text.bodySmall,
+          ),
+        ],
       ),
     );
   }
@@ -761,53 +975,52 @@ class _PrimaryActionCard extends StatelessWidget {
 
 class _ActionGrid extends StatelessWidget {
   const _ActionGrid({required this.items, required this.onTap});
-
   final List<_HomeAction> items;
   final ValueChanged<String> onTap;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: items.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+        crossAxisSpacing: AppSpace.xs,
+        mainAxisSpacing: AppSpace.xs,
         childAspectRatio: 1.55,
       ),
       itemBuilder: (context, index) {
         final item = items[index];
-        return InkWell(
+        return NexusCard(
           onTap: () => onTap(item.route),
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF171A21),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF2A2F3A)),
-            ),
-            child: Row(
-              children: [
-                Icon(item.icon, color: item.color, size: 25),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 3),
-                      Text(item.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                    ],
-                  ),
+          padding: const EdgeInsets.all(AppSpace.sm),
+          child: Row(
+            children: [
+              Icon(item.icon, color: t.primary, size: 22),
+              const SizedBox(width: AppSpace.xs),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.typeExtras.bodyStrong,
+                    ),
+                    Text(
+                      item.subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.bodySmall,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
@@ -817,25 +1030,39 @@ class _ActionGrid extends StatelessWidget {
 
 class _MoreList extends StatelessWidget {
   const _MoreList({required this.items, required this.onTap});
-
   final List<_HomeAction> items;
   final ValueChanged<String> onTap;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return Column(
       children: [
         for (final item in items)
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
+            padding: const EdgeInsets.only(bottom: AppSpace.xs),
+            child: NexusCard(
               onTap: () => onTap(item.route),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: Color(0xFF2A2F3A))),
-              tileColor: const Color(0xFF171A21),
-              leading: Icon(item.icon, color: item.color),
-              title: Text(item.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-              subtitle: Text(item.subtitle, style: const TextStyle(color: Colors.white54)),
-              trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpace.md,
+                vertical: AppSpace.xs,
+              ),
+              child: Row(
+                children: [
+                  Icon(item.icon, color: t.primary),
+                  const SizedBox(width: AppSpace.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item.title, style: context.typeExtras.bodyStrong),
+                        Text(item.subtitle, style: context.text.bodySmall),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: t.inkFaint),
+                ],
+              ),
             ),
           ),
       ],
@@ -844,11 +1071,9 @@ class _MoreList extends StatelessWidget {
 }
 
 class _HomeAction {
-  const _HomeAction(this.title, this.subtitle, this.icon, this.route, this.color);
-
+  const _HomeAction(this.title, this.subtitle, this.icon, this.route);
   final String title;
   final String subtitle;
   final IconData icon;
   final String route;
-  final Color color;
 }

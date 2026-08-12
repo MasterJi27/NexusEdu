@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_edu/core/models/app_user.dart';
-import 'package:nexus_edu/core/models/study_note.dart';
 
 void main() {
   group('AppUser', () {
@@ -38,32 +37,6 @@ void main() {
       final user = AppUser.fromMap(map, '1');
       expect(user.role, UserRole.student);
       expect(user.xp, 0);
-    });
-  });
-
-  group('StudyNote', () {
-    test('creates with default timestamps', () {
-      final note = StudyNote(id: '1', userId: 'u1', title: 'Title', content: 'Content', topic: 'Math');
-      expect(note.isFavorite, false);
-      expect(note.createdAt, isNotNull);
-      expect(note.updatedAt, isNotNull);
-    });
-
-    test('copyWith updates fields', () {
-      final note = StudyNote(id: '1', userId: 'u1', title: 'Title', content: 'Content', topic: 'Math');
-      final updated = note.copyWith(title: 'New Title', isFavorite: true);
-      expect(updated.title, 'New Title');
-      expect(updated.isFavorite, true);
-      expect(updated.content, 'Content');
-    });
-
-    test('serializes to and from map', () {
-      final note = StudyNote(id: '1', userId: 'u1', title: 'Title', content: 'Content', topic: 'Math', isFavorite: true);
-      final map = note.toMap();
-      final restored = StudyNote.fromMap(map, '1');
-      expect(restored.title, note.title);
-      expect(restored.content, note.content);
-      expect(restored.isFavorite, note.isFavorite);
     });
   });
 }

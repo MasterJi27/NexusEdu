@@ -1,8 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:go_router/go_router.dart';
+import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:nexus_edu/core/services/local_history_store.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/ai_tool_scaffold.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 
 class AiStudyPlannerScreen extends StatefulWidget {
   const AiStudyPlannerScreen({super.key});
@@ -13,28 +18,34 @@ class AiStudyPlannerScreen extends StatefulWidget {
 
 class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
   DateTime? _examDate;
-  final List<Map<String, dynamic>> _subjects = [
-    {'name': 'Physics', 'priority': 'High', 'chapters': ['Electrostatics', 'Optics', 'Modern Physics']},
-    {'name': 'Chemistry', 'priority': 'Medium', 'chapters': ['Organic', 'Inorganic', 'Physical']},
-    {'name': 'Maths', 'priority': 'High', 'chapters': ['Calculus', 'Algebra', 'Coordinate Geometry']},
-  ];
+  String? _selectedClass;
+  List<SubjectSyllabus> _subjects = const [];
   bool _isGenerating = false;
+  String? _error;
   List<Map<String, dynamic>> _dailyPlan = [];
   List<Map<String, dynamic>> _planHistory = [];
+  static const _historyStore = LocalHistoryStore('study_planner_data');
 
   @override
   void initState() {
     super.initState();
     _loadPlan();
+    _loadSubjects();
+  }
+
+  Future<void> _loadSubjects() async {
+    final selectedClass = await LearnerProfileService.getSelectedClass();
+    if (!mounted) return;
+    setState(() {
+      _selectedClass = selectedClass;
+      _subjects = LearningCatalog.subjectsFor(selectedClass);
+    });
   }
 
   Future<void> _loadPlan() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('study_planner_data') ?? [];
+    final history = await _historyStore.load();
     setState(() {
-      _planHistory = saved
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
+      _planHistory = history;
       if (_planHistory.isNotEmpty) {
         _dailyPlan = List<Map<String, dynamic>>.from(
             _planHistory.first['plan'] ?? []);
@@ -43,32 +54,30 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
   }
 
   Future<void> _savePlan() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      'study_planner_data',
-      _planHistory.map((e) => json.encode(e)).toList(),
-    );
+    await _historyStore.save(_planHistory);
   }
 
   Future<void> _generatePlan() async {
     if (_examDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please select an exam date first'),
-          backgroundColor: Colors.orangeAccent.withAlpha(200),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+        const SnackBar(content: Text('Please select an exam date first')),
+      );
+      return;
+    }
+    if (_subjects.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select your class first so we know your subjects')),
       );
       return;
     }
 
-    setState(() => _isGenerating = true);
+    setState(() {
+      _isGenerating = true;
+      _error = null;
+    });
 
     final daysLeft = _examDate!.difference(DateTime.now()).inDays;
-    final subjectList = _subjects
-        .map((s) => "${s['name']} (Priority: ${s['priority']})")
-        .join(', ');
+    final subjectList = _subjects.map((s) => s.name).join(', ');
 
     final prompt = "Create a study plan for $daysLeft days until the exam. "
         "Subjects: $subjectList. "
@@ -78,20 +87,11 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
         "\"type\" (string, one of: study/review/practice/break). "
         "Include 6-8 tasks per day. No markdown, no code fences. Raw JSON only.";
 
-    final result = await AiService.generateCurriculumContent(prompt);
-
-    if (!mounted) return;
-
     try {
-      String jsonStr = result.trim();
-      if (jsonStr.startsWith('```')) {
-        final lines = jsonStr.split('\n');
-        if (lines.first.startsWith('```')) lines.removeAt(0);
-        if (lines.isNotEmpty && lines.last.startsWith('```')) lines.removeLast();
-        jsonStr = lines.join('\n').trim();
-      }
+      final result = await AiService.generateStructured(prompt);
+      if (!mounted) return;
 
-      final List<dynamic> parsed = json.decode(jsonStr);
+      final List<dynamic> parsed = json.decode(result);
       final plan = parsed.map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
       setState(() {
@@ -106,8 +106,12 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
       });
       if (_planHistory.length > 10) _planHistory.removeLast();
       _savePlan();
-    } catch (_) {
-      setState(() => _isGenerating = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isGenerating = false;
+        _error = "Couldn't generate a plan. Check your connection and try again.";
+      });
     }
   }
 
@@ -119,211 +123,157 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: const Text(
-          'AI Study Planner',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+    return AiToolScaffold(
+      title: 'AI Study Planner',
+      subtitle: 'Pick an exam date and get a day-by-day study plan.',
+      inputForm: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildExamDatePicker(context),
+          const SizedBox(height: AppSpace.md),
+          _buildSubjectList(context),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildExamDatePicker(),
-            const SizedBox(height: 16),
-            _buildSubjectList(),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _isGenerating ? null : _generatePlan,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.deepPurpleAccent.withAlpha(220),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                icon: _isGenerating
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.auto_awesome),
-                label: Text(
-                  _isGenerating ? 'Generating Plan...' : 'Generate Plan',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (_dailyPlan.isNotEmpty) ...[
-              _buildProgressCard(),
-              const SizedBox(height: 16),
-              _buildTodayPlanCard(),
-            ],
-          ],
-        ),
-      ),
+      generateLabel: 'Generate Plan',
+      isGenerating: _isGenerating,
+      onGenerate: _generatePlan,
+      errorText: _error,
+      onRetry: _generatePlan,
+      resultBuilder: _dailyPlan.isNotEmpty
+          ? (ctx) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildProgressCard(ctx),
+                  const SizedBox(height: AppSpace.md),
+                  _buildTodayPlanCard(ctx),
+                ],
+              )
+          : null,
     );
   }
 
-  Widget _buildExamDatePicker() {
-    return GestureDetector(
+  Widget _buildExamDatePicker(BuildContext context) {
+    final t = context.tokens;
+    return NexusCard(
+      padding: const EdgeInsets.all(AppSpace.md),
       onTap: () async {
         final date = await showDatePicker(
           context: context,
           initialDate: _examDate ?? DateTime.now().add(const Duration(days: 30)),
           firstDate: DateTime.now(),
           lastDate: DateTime.now().add(const Duration(days: 365)),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: const ColorScheme.dark(
-                  primary: Colors.deepPurpleAccent,
-                  surface: Color(0xFF1E1E1E),
-                ),
-              ),
-              child: child!,
-            );
-          },
         );
         if (date != null) setState(() => _examDate = date);
       },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.deepPurpleAccent.withAlpha(40)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.deepPurpleAccent.withAlpha(30),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.calendar_today,
-                  color: Colors.deepPurpleAccent, size: 22),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppSpace.sm),
+            decoration: BoxDecoration(
+              color: t.primaryTint,
+              borderRadius: AppRadius.brSm,
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Exam Date',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withAlpha(150),
-                    ),
+            child: Icon(Icons.calendar_today, color: t.primary, size: 22),
+          ),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Exam Date',
+                  style: context.text.labelSmall?.copyWith(color: t.inkMuted),
+                ),
+                const SizedBox(height: AppSpace.xxs),
+                Text(
+                  _examDate != null
+                      ? '${_examDate!.day}/${_examDate!.month}/${_examDate!.year}'
+                      : 'Tap to select exam date',
+                  style: context.text.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: _examDate != null ? t.ink : t.inkMuted,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _examDate != null
-                        ? '${_examDate!.day}/${_examDate!.month}/${_examDate!.year}'
-                        : 'Tap to select exam date',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: _examDate != null
-                          ? Colors.white
-                          : Colors.white.withAlpha(120),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Icon(Icons.chevron_right, color: Colors.white.withAlpha(100)),
-          ],
-        ),
+          ),
+          Icon(Icons.chevron_right, color: t.inkFaint),
+        ],
       ),
-    ).animate().fade().slideY(begin: -0.06);
+    );
   }
 
-  Widget _buildSubjectList() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
-      ),
+  Widget _buildSubjectList(BuildContext context) {
+    final t = context.tokens;
+    if (_subjects.isEmpty) {
+      return NexusCard(
+        onTap: () => context.push('/elearning-class'),
+        child: Row(
+          children: [
+            Icon(Icons.school_outlined, color: t.inkMuted),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: Text(
+                'Select your class to plan around your real subjects',
+                style: context.text.bodyMedium?.copyWith(color: t.inkMuted),
+              ),
+            ),
+            Icon(Icons.chevron_right, color: t.inkFaint),
+          ],
+        ),
+      );
+    }
+    return NexusCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Subjects & Priority',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('$_selectedClass Subjects', style: context.text.titleSmall),
+              GestureDetector(
+                onTap: () => context.push('/elearning-class'),
+                child: Text(
+                  'Change',
+                  style: context.text.labelMedium?.copyWith(color: t.primary),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.sm),
           ...List.generate(_subjects.length, (i) {
             final subject = _subjects[i];
-            final priorityColor = subject['priority'] == 'High'
-                ? Colors.redAccent
-                : subject['priority'] == 'Medium'
-                    ? Colors.orangeAccent
-                    : Colors.greenAccent;
             return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: AppSpace.xs),
+              padding: const EdgeInsets.all(AppSpace.sm),
               decoration: BoxDecoration(
-                color: Colors.black.withAlpha(30),
-                borderRadius: BorderRadius.circular(12),
+                color: t.surfaceAlt,
+                borderRadius: AppRadius.brMd,
               ),
               child: Row(
                 children: [
+                  Icon(subject.icon, color: subject.color, size: 20),
+                  const SizedBox(width: AppSpace.sm),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          subject['name'],
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                          subject.name,
+                          style: context.typeExtras.bodyStrong.copyWith(
+                            color: t.ink,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: AppSpace.xxs),
                         Text(
-                          (subject['chapters'] as List).join(' • '),
-                          style: TextStyle(
-                            color: Colors.white.withAlpha(120),
-                            fontSize: 11,
+                          subject.topics.join(' • '),
+                          style: context.text.bodySmall?.copyWith(
+                            color: t.inkMuted,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
-                    ),
-                  ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: priorityColor.withAlpha(30),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      subject['priority'],
-                      style: TextStyle(
-                        color: priorityColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
                     ),
                   ),
                 ],
@@ -332,71 +282,56 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
           }),
         ],
       ),
-    ).animate().fade(delay: 100.ms);
+    );
   }
 
-  Widget _buildProgressCard() {
+  Widget _buildProgressCard(BuildContext context) {
+    final t = context.tokens;
     final completed =
         _dailyPlan.where((t) => t['completed'] == true).length;
     final total = _dailyPlan.length;
     final progress = total > 0 ? completed / total : 0.0;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.deepPurple.withAlpha(30),
-            Colors.teal.withAlpha(20),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.deepPurpleAccent.withAlpha(30)),
-      ),
+    return NexusCard(
+      padding: const EdgeInsets.all(AppSpace.md),
+      background: t.primaryTint,
+      borderColor: t.primaryTintBorder,
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Today\'s Progress',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
+              Text("Today's Progress", style: context.text.titleSmall),
               Text(
                 '$completed/$total tasks',
-                style: const TextStyle(
-                  color: Colors.tealAccent,
-                  fontWeight: FontWeight.bold,
+                style: context.typeExtras.bodyStrong.copyWith(
+                  color: t.statusPresent,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.white.withAlpha(15),
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-            borderRadius: BorderRadius.circular(6),
-            minHeight: 8,
+          const SizedBox(height: AppSpace.sm),
+          ClipRRect(
+            borderRadius: AppRadius.brSm,
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: t.surfaceAlt,
+              valueColor: AlwaysStoppedAnimation<Color>(t.statusPresent),
+              minHeight: 8,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpace.xs),
           Text(
             '${(progress * 100).round()}% Complete',
-            style: TextStyle(
-              color: Colors.white.withAlpha(150),
-              fontSize: 12,
-            ),
+            style: context.text.bodySmall?.copyWith(color: t.inkMuted),
           ),
         ],
       ),
-    ).animate().fade(delay: 200.ms);
+    );
   }
 
-  Widget _buildTodayPlanCard() {
+  Widget _buildTodayPlanCard(BuildContext context) {
+    final t = context.tokens;
     final taskTypeIcons = {
       'study': Icons.menu_book,
       'review': Icons.replay,
@@ -404,82 +339,67 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
       'break': Icons.coffee,
     };
     final taskTypeColors = {
-      'study': Colors.deepPurpleAccent,
-      'review': Colors.tealAccent,
-      'practice': Colors.orangeAccent,
-      'break': Colors.greenAccent,
+      'study': t.primary,
+      'review': t.statusPresent,
+      'practice': t.statusLate,
+      'break': t.statusPresent,
     };
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
-      ),
+    return NexusCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Today\'s Schedule',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 12),
+          Text("Today's Schedule", style: context.text.titleSmall),
+          const SizedBox(height: AppSpace.sm),
           ...List.generate(_dailyPlan.length, (i) {
             final task = _dailyPlan[i];
             final type = task['type'] ?? 'study';
             final isCompleted = task['completed'] == true;
-            final color = taskTypeColors[type] ?? Colors.deepPurpleAccent;
+            final color = taskTypeColors[type] ?? t.primary;
             final icon = taskTypeIcons[type] ?? Icons.circle;
 
             return GestureDetector(
               onTap: () => _toggleTask(i),
               child: Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: AppSpace.xs),
+                padding: const EdgeInsets.all(AppSpace.sm),
                 decoration: BoxDecoration(
                   color: isCompleted
-                      ? Colors.tealAccent.withAlpha(15)
-                      : Colors.black.withAlpha(30),
-                  borderRadius: BorderRadius.circular(12),
+                      ? t.statusPresent.withValues(alpha: 0.12)
+                      : t.surfaceAlt,
+                  borderRadius: AppRadius.brMd,
                   border: Border.all(
                     color: isCompleted
-                        ? Colors.tealAccent.withAlpha(40)
-                        : Colors.white.withAlpha(10),
+                        ? t.statusPresent.withValues(alpha: 0.3)
+                        : t.border,
                   ),
                 ),
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(6),
+                      padding: const EdgeInsets.all(AppSpace.xs),
                       decoration: BoxDecoration(
-                        color: color.withAlpha(30),
-                        borderRadius: BorderRadius.circular(8),
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: AppRadius.brSm,
                       ),
                       child: Icon(icon, color: color, size: 18),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: AppSpace.sm),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             task['time'] ?? '',
-                            style: TextStyle(
+                            style: context.text.labelSmall?.copyWith(
                               color: color,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           Text(
                             task['task'] ?? '',
-                            style: TextStyle(
-                              color: isCompleted
-                                  ? Colors.white.withAlpha(100)
-                                  : Colors.white.withAlpha(200),
+                            style: context.text.bodyMedium?.copyWith(
+                              color: isCompleted ? t.inkFaint : t.ink,
                               fontWeight: FontWeight.w600,
                               decoration: isCompleted
                                   ? TextDecoration.lineThrough
@@ -488,9 +408,8 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
                           ),
                           Text(
                             '${task['subject']} • ${task['duration'] ?? ''}',
-                            style: TextStyle(
-                              color: Colors.white.withAlpha(100),
-                              fontSize: 11,
+                            style: context.text.bodySmall?.copyWith(
+                              color: t.inkMuted,
                             ),
                           ),
                         ],
@@ -500,8 +419,7 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
                       isCompleted
                           ? Icons.check_circle
                           : Icons.radio_button_unchecked,
-                      color:
-                          isCompleted ? Colors.tealAccent : Colors.white38,
+                      color: isCompleted ? t.statusPresent : t.inkFaint,
                     ),
                   ],
                 ),
@@ -510,6 +428,6 @@ class _AiStudyPlannerScreenState extends State<AiStudyPlannerScreen> {
           }),
         ],
       ),
-    ).animate().fade(delay: 300.ms);
+    );
   }
 }

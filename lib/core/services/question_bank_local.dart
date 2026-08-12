@@ -518,7 +518,7 @@ class QuestionBankLocal {
           final b = rng.nextInt(5) + 1;
           return {
             'q': 'Simplify the ratio ${a * 10}:${b * 10}',
-            'options': ['$a:$b', '${b}:${a}', '${a + 1}:${b + 1}', '${a}:${b + 1}'],
+            'options': ['$a:$b', '$b:$a', '${a + 1}:${b + 1}', '$a:${b + 1}'],
             'correct': 0,
             'chapter': 'Ratio and Proportion',
             'difficulty': difficulty,

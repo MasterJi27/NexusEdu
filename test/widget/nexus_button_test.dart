@@ -41,7 +41,9 @@ void main() {
       ),
     );
 
+    // The spinner replaces the icon; the label stays visible so the button
+    // does not change width mid-action (documented on NexusButton.isLoading).
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.text('Submit'), findsNothing);
+    expect(find.text('Submit'), findsOneWidget);
   });
 }

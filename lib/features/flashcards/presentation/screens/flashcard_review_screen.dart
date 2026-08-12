@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:nexus_edu/core/theme/app_theme.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
 
 class FlashcardReviewScreen extends StatefulWidget {
   final int deckIndex;
@@ -78,43 +82,49 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
   void _completeReview() {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Review Complete!'),
-        content: Text(
-          'Known: ${_knownCards.length} / ${_cards.length}\n'
-          'Needs Review: ${_unknownCards.length} / ${_cards.length}',
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.pop(context);
-            },
-            child: const Text('Done'),
+      builder: (dialogContext) => Theme(
+        data: AppTheme.darkTheme,
+        child: Builder(
+          builder: (ctx) => AlertDialog(
+            title: Text('Review Complete!', style: ctx.text.titleMedium),
+            content: Text(
+              'Known: ${_knownCards.length} / ${_cards.length}\n'
+              'Needs Review: ${_unknownCards.length} / ${_cards.length}',
+              style: ctx.text.bodyMedium,
+            ),
+            actions: [
+              NexusButton(
+                label: 'Done',
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  Navigator.pop(context);
+                },
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.deck['name'] ?? 'Flashcards'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Text(
-                '${_currentIndex + 1}/${_cards.length}',
-                style: const TextStyle(fontWeight: FontWeight.w600),
+    final t = context.tokens;
+    return NexusScreen(
+      title: widget.deck['name'] ?? 'Flashcards',
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: AppSpace.md),
+          child: Center(
+            child: Text(
+              '${_currentIndex + 1}/${_cards.length}',
+              style: context.text.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
       body: Column(
         children: [
           Expanded(
@@ -132,7 +142,7 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
               itemBuilder: (context, index) {
                 final card = _cards[index];
                 return Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(AppSpace.lg),
                   child: GestureDetector(
                     onTap: _flipCard,
                     child: AnimatedBuilder(
@@ -148,8 +158,8 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
                               ? _buildCardSide(
                                   card['front'] as String,
                                   'Tap to reveal answer',
-                                  theme,
-                                  const Color(0xFF1E1E1E),
+                                  context,
+                                  t.surface,
                                 )
                               : Transform(
                                   alignment: Alignment.center,
@@ -158,8 +168,8 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
                                   child: _buildCardSide(
                                     card['back'] as String,
                                     'Tap to see question',
-                                    theme,
-                                    Colors.deepPurple.withAlpha(30),
+                                    context,
+                                    t.primaryTint,
                                   ),
                                 ),
                         );
@@ -170,48 +180,48 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
               },
             ),
           ),
-          _buildActionBar(theme),
+          _buildActionBar(context),
         ],
       ),
     );
   }
 
-  Widget _buildCardSide(String text, String hint, ThemeData theme, Color bgColor) {
+  Widget _buildCardSide(
+    String text,
+    String hint,
+    BuildContext context,
+    Color bgColor,
+  ) {
+    final t = context.tokens;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(60),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: t.border),
+        boxShadow: AppElevation.e2(t.shadow),
       ),
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(AppSpace.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.touch_app,
                 size: 24,
-                color: Colors.white.withAlpha(80),
+                color: t.inkFaint,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpace.lg),
               Text(
                 text,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                style: context.text.headlineSmall,
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpace.lg),
               Text(
                 hint,
-                style: TextStyle(fontSize: 12, color: Colors.white.withAlpha(80)),
+                style: context.text.labelSmall?.copyWith(color: t.inkFaint),
               ),
             ],
           ),
@@ -220,23 +230,29 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
     );
   }
 
-  Widget _buildActionBar(ThemeData theme) {
+  Widget _buildActionBar(BuildContext context) {
+    final t = context.tokens;
     final isLastCard = _currentIndex >= _cards.length - 1;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.xl,
+        vertical: AppSpace.lg,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _actionButton(
+            context,
             icon: Icons.close,
             label: 'Again',
-            color: Colors.redAccent,
+            color: t.statusAbsent,
             onTap: _markUnknown,
           ),
           _actionButton(
+            context,
             icon: Icons.check,
             label: isLastCard ? 'Finish' : 'Good',
-            color: Colors.greenAccent,
+            color: t.statusPresent,
             onTap: isLastCard ? _completeReview : _markKnown,
           ),
         ],
@@ -244,7 +260,8 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
     );
   }
 
-  Widget _actionButton({
+  Widget _actionButton(
+    BuildContext context, {
     required IconData icon,
     required String label,
     required Color color,
@@ -253,18 +270,27 @@ class _FlashcardReviewScreenState extends State<FlashcardReviewScreen>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.xl,
+          vertical: AppSpace.sm,
+        ),
         decoration: BoxDecoration(
-          color: color.withAlpha(30),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withAlpha(80)),
+          color: color.withValues(alpha: 0.15),
+          borderRadius: AppRadius.brMd,
+          border: Border.all(color: color.withValues(alpha: 0.4)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: color, size: 22),
-            const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+            const SizedBox(width: AppSpace.xs),
+            Text(
+              label,
+              style: context.text.labelLarge?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),

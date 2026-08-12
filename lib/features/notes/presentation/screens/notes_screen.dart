@@ -1,9 +1,22 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
+import 'package:nexus_edu/core/services/notes_sync_service.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/features/attendance/presentation/screens/qr_scanner_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_list_row.dart';
+import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -12,66 +25,105 @@ class NotesScreen extends StatefulWidget {
   State<NotesScreen> createState() => _NotesScreenState();
 }
 
-class _NotesScreenState extends State<NotesScreen> {
+class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   late List<Map<String, dynamic>> _notes;
-  final List<Color> _noteColors = [
-    Colors.amber.shade200,
-    Colors.blue.shade200,
-    Colors.green.shade200,
-    Colors.pink.shade200,
-    Colors.purple.shade200,
-    Colors.teal.shade200,
-    Colors.orange.shade200,
-    Colors.red.shade200,
+  List<dynamic> _classNotes = [];
+  bool _loadingClassNotes = true;
+
+  /// Tint palette for note cards. Status colours are never spent on
+  /// decoration — green means "present", not "saved" — so notes use the
+  /// neutral tint set only.
+  List<(Color, Color)> _notePalette(AppTokens t) => [
+    (t.primaryTint, t.primaryTintBorder),
+    (t.secondaryTint, t.borderStrong),
+    (t.surfaceAlt, t.border),
+    (t.primaryTintBorder, t.borderStrong),
+    (t.borderStrong, t.border),
+    (t.secondaryTint, t.borderStrong),
   ];
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this)..addListener(() => setState(() {}));
     _loadNotes();
+    _loadClassNotes();
   }
 
-  void _loadNotes() {
-    final cached = AppSettings.instance.cachedNotes;
-    if (cached.isNotEmpty) {
-      _notes = cached;
-    } else {
-      _notes = [
-        {
-          'title': 'AI & Machine Learning',
-          'content': 'Key differences between Supervised and Unsupervised learning...\n- Supervised: Labeled data\n- Unsupervised: Unlabeled data',
-          'color': Colors.amber.shade200,
-          'date': 'Today',
-          'subject': 'Computer Science',
-        },
-        {
-          'title': 'Data Structures',
-          'content': 'Trees vs Graphs. A tree is a special kind of graph with no cycles.',
-          'color': Colors.blue.shade200,
-          'date': 'Yesterday',
-          'subject': 'Computer Science',
-        },
-        {
-          'title': 'Project Ideas',
-          'content': '1. AI Tutor\n2. Real-time Notes Scanner\n3. Flashcard Generator',
-          'color': Colors.green.shade200,
-          'date': '2 Days ago',
-          'subject': 'General',
-        },
-        {
-          'title': 'Physics Formulas',
-          'content': 'F = ma\nE = mc^2\nv = u + at',
-          'color': Colors.pink.shade200,
-          'date': '1 Week ago',
-          'subject': 'Physics',
-        },
-      ];
-      _saveNotes();
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadClassNotes() async {
+    if (!SecureApiService().isLoggedIn) {
+      setState(() => _loadingClassNotes = false);
+      return;
     }
+    final notes = await SecureApiService().getTeacherNotes();
+    if (!mounted) return;
+    setState(() {
+      _classNotes = notes;
+      _loadingClassNotes = false;
+    });
+  }
+
+  /// Demo notes are guest-only: once a student logs in, their notes come
+  /// from the server and the placeholders never surface again.
+  List<Map<String, dynamic>> _demoNotes() => [
+    {
+      'title': 'AI & Machine Learning',
+      'content': 'Key differences between Supervised and Unsupervised learning...\n- Supervised: Labeled data\n- Unsupervised: Unlabeled data',
+      'date': 'Today',
+      'subject': 'Computer Science',
+      'demo': true,
+    },
+    {
+      'title': 'Data Structures',
+      'content': 'Trees vs Graphs. A tree is a special kind of graph with no cycles.',
+      'date': 'Yesterday',
+      'subject': 'Computer Science',
+      'demo': true,
+    },
+    {
+      'title': 'Project Ideas',
+      'content': '1. AI Tutor\n2. Real-time Notes Scanner\n3. Flashcard Generator',
+      'date': '2 Days ago',
+      'subject': 'General',
+      'demo': true,
+    },
+    {
+      'title': 'Physics Formulas',
+      'content': 'F = ma\nE = mc^2\nv = u + at',
+      'date': '1 Week ago',
+      'subject': 'Physics',
+      'demo': true,
+    },
+  ];
+
+  /// Cache-first render, then a background pull from the server when logged
+  /// in. Guest data (with any real notes) gets uploaded during the pull.
+  Future<void> _loadNotes() async {
+    final loggedIn = SecureApiService().isLoggedIn;
+    var cached = AppSettings.instance.cachedNotes;
+    if (cached.isEmpty && !loggedIn) {
+      cached = _demoNotes();
+      AppSettings.instance.saveCachedNotes(cached);
+    }
+    if (!mounted) return;
+    setState(() => _notes = cached);
+    if (!loggedIn) return;
+    final merged = await NotesSyncService.pull(cached);
+    if (!mounted) return;
+    setState(() => _notes = merged);
+    NotesSyncService.pushDirty(merged);
   }
 
   void _saveNotes() {
     AppSettings.instance.saveCachedNotes(_notes);
+    NotesSyncService.pushDirty(_notes);
   }
 
   void _generateQuizFromNotes() async {
@@ -82,15 +134,26 @@ class _NotesScreenState extends State<NotesScreen> {
       );
       return;
     }
-    final result = await AiService.generateSmartNotes(
-      'Generate 5 MCQs with 4 options each and mark the correct answer, based on these topics: $allContent. Format as: Question? A) B) C) D) Answer: X',
-    );
+    String result;
+    try {
+      result = await AiService.generateSmartNotes(
+        'Generate 5 MCQs with 4 options each and mark the correct answer, based on these topics: $allContent. Format as: Question? A) B) C) D) Answer: X',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't generate a quiz. Check your connection and try again."),
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('AI Quiz from Notes'),
-        content: SingleChildScrollView(child: Text(result)),
+        content: SingleChildScrollView(child: MarkdownBody(data: result, selectable: true, styleSheet: _markdownStyle(context))),
         actions: [
           TextButton(
             onPressed: () {
@@ -101,13 +164,33 @@ class _NotesScreenState extends State<NotesScreen> {
             },
             child: const Text('Copy'),
           ),
-          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          NexusButton(onPressed: () => Navigator.pop(ctx), label: 'OK'),
         ],
       ),
     );
   }
 
-  void _exportNoteAsPdf(int index) {
+  Future<void> _exportNoteAsPdf(int index) async {
+    final note = _notes[index];
+    final title = note['title'] ?? 'Untitled';
+    final bytes = await buildNotePdf(
+      title: title,
+      subject: note['subject'] ?? 'General',
+      date: note['date'] ?? '',
+      content: note['content'] ?? '',
+    );
+    if (!mounted) return;
+    try {
+      await Printing.sharePdf(bytes: bytes, filename: '${title.replaceAll(' ', '_')}.pdf');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PDF export failed: $e')),
+      );
+    }
+  }
+
+  void _copyNote(int index) {
     final note = _notes[index];
     final title = note['title'] ?? 'Untitled';
     final text = 'Title: $title\nSubject: ${note['subject'] ?? 'General'}\nDate: ${note['date'] ?? ''}\n\n${note['content'] ?? ''}';
@@ -118,164 +201,259 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   void _deleteNote(int index) {
-    final title = _notes[index]['title'] ?? 'Untitled';
+    final note = _notes[index];
+    final title = note['title'] ?? 'Untitled';
     setState(() => _notes.removeAt(index));
     _saveNotes();
+    NotesSyncService.deleteOnServer(note['id']?.toString());
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Deleted "$title"')),
     );
+  }
+
+  /// Opens an existing note for viewing/editing. Returns to a fresh grid so
+  /// the updated title/content are reflected immediately.
+  Future<void> _openNote(int index) async {
+    final note = _notes[index];
+    await context.push(
+      '/note-editor',
+      extra: {'index': index, ...note},
+    );
+    if (mounted) _loadNotes();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Smart Notes', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.quiz_outlined),
-            onPressed: _generateQuizFromNotes,
-            tooltip: 'AI Quiz from Notes',
-          ),
-          IconButton(
-            icon: const Icon(Icons.style),
-            onPressed: () => context.push('/flashcards'),
-            tooltip: 'Flashcards',
-          ),
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        child: _notes.isEmpty
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.note_add_outlined, size: 80, color: Colors.white.withAlpha(80)),
-                    const SizedBox(height: 16),
-                    Text('No notes yet', style: TextStyle(fontSize: 20, color: Colors.white.withAlpha(150))),
-                    const SizedBox(height: 8),
-                    Text('Tap + to create your first note', style: TextStyle(color: Colors.white.withAlpha(100))),
-                  ],
+        title: const Text('Notes'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [Tab(text: 'My Notes'), Tab(text: 'Class Notes')],
+        ),
+        actions: _tabController.index == 0
+            ? [
+                IconButton(
+                  icon: const Icon(Icons.quiz_outlined),
+                  onPressed: _generateQuizFromNotes,
+                  tooltip: 'AI Quiz from Notes',
                 ),
-              )
-            : GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 0.85,
+                IconButton(
+                  icon: const Icon(Icons.style),
+                  onPressed: () => context.push('/flashcards'),
+                  tooltip: 'Flashcards',
                 ),
-                itemCount: _notes.length,
-                itemBuilder: (context, index) {
-                  final note = _notes[index];
-                  return _buildNoteCard(note, index)
-                      .animate()
-                      .fade(delay: (100 * index).ms)
-                      .scale();
-                },
-              ),
+              ]
+            : null,
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          FloatingActionButton.small(
-            heroTag: "scan",
-            onPressed: () => context.push('/scanner'),
-            child: const Icon(Icons.document_scanner),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildAiToolsStrip(),
+                const SizedBox(height: AppSpace.sm),
+                Expanded(
+                  child: _notes.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(AppSpace.lg),
+                            child: NexusStateView.empty(
+                              title: 'No notes yet',
+                              description:
+                                  'Tap Smart Note to create your first note, or Auto Draft to let AI write one from a topic.',
+                              icon: Icons.note_add_outlined,
+                            ),
+                          ),
+                        )
+                      : GridView.builder(
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: AppSpace.md,
+                            mainAxisSpacing: AppSpace.md,
+                            childAspectRatio: 0.85,
+                          ),
+                          itemCount: _notes.length,
+                          itemBuilder: (context, index) {
+                            final note = _notes[index];
+                            return _buildNoteCard(note, index);
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: "write",
-            onPressed: () => context.push('/note-editor'),
-            icon: const Icon(Icons.edit),
-            label: const Text('Smart Note'),
-          ),
+          _buildClassNotesTab(),
         ],
-      ).animate().slideY(begin: 1, end: 0, delay: 500.ms),
+      ),
+      floatingActionButton: _tabController.index != 0
+          ? null
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: "scan",
+                  onPressed: () => context.push('/scanner'),
+                  child: const Icon(Icons.document_scanner),
+                ),
+                const SizedBox(height: AppSpace.sm),
+                FloatingActionButton.extended(
+                  heroTag: "write",
+                  onPressed: () => context.push('/note-editor'),
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Smart Note'),
+                ),
+              ],
+            ),
     );
   }
 
-  Widget _buildNoteCard(Map<String, dynamic> note, int index) {
-    final noteColor = note['color'] is Color ? note['color'] as Color : _noteColors[index % _noteColors.length];
-    return GestureDetector(
-      onLongPress: () => _showNoteOptions(index),
-      child: Container(
-        decoration: BoxDecoration(
-          color: noteColor.withAlpha(40),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: noteColor.withAlpha(100), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: noteColor.withAlpha(20),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
+  /// Always-visible AI actions for notes — no long-press hunting needed.
+  Widget _buildAiToolsStrip() {
+    final t = context.tokens;
+    return Row(
+      children: [
+        Expanded(
+          child: _AiToolChip(
+            icon: Icons.auto_awesome,
+            label: 'Auto Draft',
+            onTap: () => context.push('/note-editor'),
+          ),
         ),
+        const SizedBox(width: AppSpace.xs),
+        Expanded(
+          child: _AiToolChip(
+            icon: Icons.quiz_outlined,
+            label: 'Quiz',
+            onTap: _generateQuizFromNotes,
+          ),
+        ),
+        const SizedBox(width: AppSpace.xs),
+        Expanded(
+          child: _AiToolChip(
+            icon: Icons.style_outlined,
+            label: 'Flashcards',
+            onTap: () => context.push('/flashcards'),
+          ),
+        ),
+        const SizedBox(width: AppSpace.xs),
+        IconButton(
+          tooltip: 'Import a note from QR',
+          onPressed: _importNoteFromQr,
+          icon: Icon(Icons.qr_code_scanner, color: t.primary),
+        ),
+      ],
+    );
+  }
+
+  /// Offline note sharing: the QR payload carries the note itself, so the
+  /// receiver gets it with no internet, no account, no backend.
+  String _notePayload(Map<String, dynamic> note) {
+    final json = jsonEncode({
+      't': note['title'] ?? 'Untitled',
+      'c': note['content'] ?? '',
+    });
+    return 'nexusedu://note/${base64Url.encode(utf8.encode(json))}';
+  }
+
+  /// Decodes a scanned QR payload into a note, or returns null.
+  Map<String, dynamic>? _decodeNotePayload(String raw) {
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null || uri.scheme != 'nexusedu' || uri.host != 'note') {
+      return null;
+    }
+    try {
+      final json = jsonDecode(
+        utf8.decode(base64Url.decode(uri.pathSegments.first)),
+      ) as Map<String, dynamic>;
+      return {
+        'title': json['t']?.toString() ?? 'Untitled',
+        'content': json['c']?.toString() ?? '',
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _importNoteFromQr() async {
+    final raw = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrScannerScreen()));
+    if (!mounted || raw == null) return;
+    final note = _decodeNotePayload(raw);
+    if (note == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That QR is not a Nexus Edu note.')),
+      );
+      return;
+    }
+    await AppSettings.instance.addCachedNote({
+      ...note,
+      'date': 'Today',
+      'subject': 'Shared',
+    });
+    _loadNotes();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Note "${note['title']}" imported.')),
+    );
+  }
+
+  void _shareNoteAsQr(int index) {
+    final note = _notes[index];
+    final t = context.tokens;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.lg,
+            AppSpace.xs,
+            AppSpace.lg,
+            AppSpace.lg,
+          ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                   Expanded(
-                    child: Text(
-                      note['title'] ?? 'Untitled',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    padding: EdgeInsets.zero,
-                    iconSize: 18,
-                    itemBuilder: (ctx) => [
-                      const PopupMenuItem(value: 'export', child: Text('Copy/Export')),
-                      const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                    ],
-                    onSelected: (v) {
-                      if (v == 'export') _exportNoteAsPdf(index);
-                      if (v == 'delete') _deleteNote(index);
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (note['subject'] != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: noteColor.withAlpha(60),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    note['subject'],
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: noteColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white70),
-                  ),
-                ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: Text(
-                  note['content'] ?? 'No content',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).textTheme.bodyMedium?.color?.withAlpha(200),
-                  ),
-                  overflow: TextOverflow.fade,
-                ),
-              ),
-              const SizedBox(height: 8),
+              Text('Share this note', style: ctx.text.headlineSmall),
+              const SizedBox(height: AppSpace.xxs),
               Text(
-                note['date'] ?? '',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                  fontWeight: FontWeight.w600,
+                'Works fully offline — the note is inside the QR.',
+                style: ctx.text.bodySmall?.copyWith(color: t.inkMuted),
+              ),
+              const SizedBox(height: AppSpace.md),
+              Container(
+                padding: const EdgeInsets.all(AppSpace.md),
+                decoration: BoxDecoration(
+                  color: t.surface,
+                  borderRadius: AppRadius.brLg,
+                  border: Border.all(color: t.border),
                 ),
+                child: QrImageView(
+                  data: _notePayload(note),
+                  size: 200,
+                  backgroundColor: t.surface,
+                  eyeStyle: QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: t.ink,
+                  ),
+                  dataModuleStyle: QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: t.ink,
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpace.md),
+              Text(
+                note['title'] ?? 'Untitled',
+                style: ctx.text.titleSmall,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -284,46 +462,317 @@ class _NotesScreenState extends State<NotesScreen> {
     );
   }
 
-  void _showNoteOptions(int index) {
+  Widget _buildClassNotesTab() {
+    if (_loadingClassNotes) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (!SecureApiService().isLoggedIn) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(AppSpace.xl),
+          child: NexusStateView.empty(
+            title: 'Sign in to see notes shared by your teachers.',
+            icon: Icons.lock_outline,
+          ),
+        ),
+      );
+    }
+    if (_classNotes.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadClassNotes,
+        child: ListView(
+          children: const [
+            SizedBox(height: 120),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: AppSpace.lg),
+              child: NexusStateView.empty(
+                title: 'No class notes yet.\nSet your grade in Profile so teachers can reach you.',
+                icon: Icons.school_outlined,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadClassNotes,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(AppSpace.md, AppSpace.md, AppSpace.md, 100),
+        itemCount: _classNotes.length,
+        itemBuilder: (context, index) {
+          final note = _classNotes[index] as Map<String, dynamic>;
+          final teacher = note['teacher'] as Map<String, dynamic>?;
+          return _buildClassNoteCard(note, teacher);
+        },
+      ),
+    );
+  }
+
+  Widget _buildClassNoteCard(
+    Map<String, dynamic> note,
+    Map<String, dynamic>? teacher,
+  ) {
+    final t = context.tokens;
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+      padding: const EdgeInsets.all(AppSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Chip(label: Text(note['subject'] as String? ?? '')),
+              if (note['topic'] != null) ...[
+                const SizedBox(width: AppSpace.xs),
+                Chip(label: Text(note['topic'] as String)),
+              ],
+            ],
+          ),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            note['title'] as String? ?? '',
+            style: context.text.titleSmall,
+          ),
+          const SizedBox(height: AppSpace.xs),
+          MarkdownBody(
+            data: note['content'] as String? ?? '',
+            selectable: true,
+            styleSheet: _markdownStyle(context),
+          ),
+          if (teacher?['name'] != null) ...[
+            const SizedBox(height: AppSpace.sm),
+            Text(
+              '— ${teacher!['name']}',
+              style: context.text.bodySmall?.copyWith(
+                color: t.inkMuted,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static MarkdownStyleSheet _markdownStyle(BuildContext context) {
+    final t = context.tokens;
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: context.text.bodyMedium?.copyWith(height: 1.45),
+      h1: context.text.titleLarge,
+      h2: context.text.titleMedium,
+      h3: context.text.titleSmall,
+      listBullet: context.text.bodyMedium?.copyWith(color: t.primary),
+      strong: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+      code: context.text.bodyMedium?.copyWith(
+        fontFamily: 'monospace',
+        color: t.ink,
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: t.surface,
+        borderRadius: AppRadius.brMd,
+        border: Border.all(color: t.border),
+      ),
+      blockquote: context.text.bodyMedium?.copyWith(
+        color: t.inkMuted,
+        fontStyle: FontStyle.italic,
+      ),
+      blockquoteDecoration: BoxDecoration(
+        color: t.primaryTint,
+        borderRadius: AppRadius.brSm,
+        border: Border(left: BorderSide(color: t.primary)),
+      ),
+      tableHead: context.text.labelMedium?.copyWith(
+        color: t.ink,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  Widget _buildNoteCard(Map<String, dynamic> note, int index) {
+    final t = context.tokens;
+    final palette = _notePalette(t);
+    final (fill, border) = note['color'] is Color
+        ? (note['color'] as Color, t.primaryTintBorder)
+        : palette[index % palette.length];
+    return GestureDetector(
+      onTap: () => _openNote(index),
+      onLongPress: () => _showNoteOptions(index),
+      child: NexusCard(
+        padding: const EdgeInsets.all(AppSpace.md),
+        background: fill,
+        borderColor: border,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    note['title'] ?? 'Untitled',
+                    style: context.text.titleSmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  iconSize: 18,
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem(
+                      value: 'export',
+                      child: Text('Export PDF'),
+                    ),
+                    const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                  onSelected: (v) {
+                    if (v == 'export') _exportNoteAsPdf(index);
+                    if (v == 'delete') _deleteNote(index);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpace.xs),
+            if (note['subject'] != null)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.xs,
+                  vertical: AppSpace.xxs,
+                ),
+                decoration: BoxDecoration(
+                  color: fill,
+                  borderRadius: AppRadius.brSm,
+                  border: Border.all(color: border),
+                ),
+                child: Text(
+                  note['subject'],
+                  style: context.text.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: t.ink,
+                  ),
+                ),
+              ),
+            if (note['latitude'] != null && note['longitude'] != null) ...[
+              const SizedBox(height: AppSpace.xxs),
+              Row(
+                children: [
+                  Icon(Icons.location_on_outlined,
+                      size: 12, color: t.inkFaint),
+                  const SizedBox(width: 2),
+                  Text(
+                    '${(note['latitude'] as num).toStringAsFixed(3)}, '
+                    '${(note['longitude'] as num).toStringAsFixed(3)}',
+                    style: context.text.labelSmall?.copyWith(
+                      color: t.inkFaint,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: AppSpace.xs),
+            Expanded(
+              child: Text(
+                note['content'] ?? 'No content',
+                style: context.text.bodyMedium?.copyWith(
+                  color: t.inkMuted,
+                ),
+                overflow: TextOverflow.fade,
+              ),
+            ),
+            const SizedBox(height: AppSpace.xs),
+            Text(
+              note['date'] ?? '',
+              style: context.text.bodySmall?.copyWith(
+                color: t.inkFaint,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNoteOptions(int index) {    final t = context.tokens;
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copy to Clipboard'),
+            NexusListRow(
+              leadingIcon: Icons.copy,
+              title: 'Copy to Clipboard',
+              onTap: () {
+                Navigator.pop(ctx);
+                _copyNote(index);
+              },
+            ),
+            NexusListRow(
+              leadingIcon: Icons.picture_as_pdf_outlined,
+              title: 'Export as PDF',
               onTap: () {
                 Navigator.pop(ctx);
                 _exportNoteAsPdf(index);
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.quiz),
-              title: const Text('Generate Quiz from this Note'),
+            NexusListRow(
+              leadingIcon: Icons.quiz,
+              iconColor: t.secondary,
+              title: 'Generate Quiz from this Note',
               onTap: () async {
                 Navigator.pop(ctx);
                 final note = _notes[index];
-                final result = await AiService.generateSmartNotes(
-                  'Generate 3 MCQs with 4 options each and mark the correct answer, based on: ${note["title"]} - ${note["content"]}',
-                );
+                String result;
+                try {
+                  result = await AiService.generateSmartNotes(
+                    'Generate 3 MCQs with 4 options each and mark the correct answer, based on: ${note["title"]} - ${note["content"]}',
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Couldn't generate a quiz. Check your connection and try again."),
+                    ),
+                  );
+                  return;
+                }
                 if (!mounted) return;
                 showDialog(
                   context: context,
                   builder: (dctx) => AlertDialog(
                     title: Text('Quiz: ${note["title"] ?? "Untitled"}'),
-                    content: SingleChildScrollView(child: Text(result)),
+                    content: SingleChildScrollView(
+                      child: MarkdownBody(
+                        data: result,
+                        selectable: true,
+                        styleSheet: _markdownStyle(context),
+                      ),
+                    ),
                     actions: [
-                      FilledButton(onPressed: () => Navigator.pop(dctx), child: const Text('OK')),
+                      NexusButton(
+                        onPressed: () => Navigator.pop(dctx),
+                        label: 'OK',
+                      ),
                     ],
                   ),
                 );
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('Delete Note', style: TextStyle(color: Colors.redAccent)),
+            NexusListRow(
+              leadingIcon: Icons.qr_code_2,
+              title: 'Share via QR (offline)',
+              onTap: () {
+                Navigator.pop(ctx);
+                _shareNoteAsQr(index);
+              },
+            ),
+            const Divider(height: 1),
+            NexusListRow(
+              leadingIcon: Icons.delete_outline,
+              iconColor: t.statusAbsent,
+              titleColor: t.statusAbsent,
+              title: 'Delete Note',
               onTap: () {
                 Navigator.pop(ctx);
                 _deleteNote(index);
@@ -334,4 +783,95 @@ class _NotesScreenState extends State<NotesScreen> {
       ),
     );
   }
+}
+
+/// Compact pill button for the always-visible AI notes actions.
+class _AiToolChip extends StatelessWidget {
+  const _AiToolChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Material(
+      color: t.primaryTint,
+      borderRadius: AppRadius.brLg,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadius.brLg,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: t.primary),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: context.text.labelSmall?.copyWith(
+                  color: t.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Markdown → plain text for the PDF writer (it has no markdown renderer).
+/// Keeps list bullets and paragraph breaks so the PDF stays readable.
+String stripMarkdownForPdf(String md) => md
+    .replaceAll(RegExp(r'[#*`_~]'), '')
+    .replaceAll(RegExp(r'^\s*[-•]\s+', multiLine: true), '• ')
+    .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+    .trim();
+
+/// Builds a shareable PDF document from a note's fields.
+Future<Uint8List> buildNotePdf({
+  required String title,
+  required String subject,
+  required String date,
+  required String content,
+}) async {
+  final doc = pw.Document();
+  doc.addPage(
+    pw.Page(
+      build: (ctx) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            title,
+            style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Text(
+            'Subject: $subject   Date: $date',
+            style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+          ),
+          pw.SizedBox(height: 14),
+          for (final block
+              in stripMarkdownForPdf(content).split(RegExp(r'\n\s*\n')))
+            if (block.trim().isNotEmpty)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 8),
+                child: pw.Text(
+                  block.trim(),
+                  style: const pw.TextStyle(fontSize: 12, height: 1.5),
+                ),
+              ),
+        ],
+      ),
+    ),
+  );
+  return doc.save();
 }

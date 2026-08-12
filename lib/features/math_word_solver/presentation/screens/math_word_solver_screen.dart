@@ -1,8 +1,11 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:nexus_edu/core/services/ai_agent_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/local_history_store.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/ai_tool_scaffold.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
 class MathWordSolverScreen extends StatefulWidget {
   const MathWordSolverScreen({super.key});
@@ -15,6 +18,7 @@ class _MathWordSolverScreenState extends State<MathWordSolverScreen> {
   final TextEditingController _problemController = TextEditingController();
   bool _isLoading = false;
   bool _solved = false;
+  String? _error;
 
   String _given = '';
   String _toFind = '';
@@ -23,6 +27,7 @@ class _MathWordSolverScreenState extends State<MathWordSolverScreen> {
   String _answer = '';
   String _practiceProblems = '';
   List<Map<String, dynamic>> _pastSolutions = [];
+  static const _historyStore = LocalHistoryStore('math_solutions');
 
   @override
   void initState() {
@@ -37,29 +42,25 @@ class _MathWordSolverScreenState extends State<MathWordSolverScreen> {
   }
 
   Future<void> _loadSolutions() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('math_solutions') ?? [];
-    setState(() {
-      _pastSolutions = saved
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
-    });
+    final solutions = await _historyStore.load();
+    setState(() => _pastSolutions = solutions);
   }
 
   Future<void> _saveSolution() async {
-    final prefs = await SharedPreferences.getInstance();
-    final solutions = prefs.getStringList('math_solutions') ?? [];
-    solutions.add(json.encode({
-      'problem': _problemController.text.trim(),
-      'given': _given,
-      'toFind': _toFind,
-      'formula': _formula,
-      'solution': _solution,
-      'answer': _answer,
-      'timestamp': DateTime.now().toIso8601String(),
-    }));
-    if (solutions.length > 20) solutions.removeAt(0);
-    await prefs.setStringList('math_solutions', solutions);
+    final updated = [
+      ..._pastSolutions,
+      {
+        'problem': _problemController.text.trim(),
+        'given': _given,
+        'toFind': _toFind,
+        'formula': _formula,
+        'solution': _solution,
+        'answer': _answer,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    ];
+    if (updated.length > 20) updated.removeAt(0);
+    await _historyStore.save(updated);
     _loadSolutions();
   }
 
@@ -69,6 +70,7 @@ class _MathWordSolverScreenState extends State<MathWordSolverScreen> {
 
     setState(() {
       _isLoading = true;
+      _error = null;
       _solved = false;
     });
 
@@ -78,21 +80,18 @@ class _MathWordSolverScreenState extends State<MathWordSolverScreen> {
         {'question': problem, 'subject': 'Mathematics'},
       );
       _parseSolution(result);
+      setState(() {
+        _isLoading = false;
+        _solved = true;
+      });
+      _saveSolution();
     } catch (_) {
-      _given = 'Problem data';
-      _toFind = 'The answer';
-      _formula = 'Standard mathematical formulas';
-      _solution = 'Apply the appropriate formula and solve step by step.';
-      _answer = 'Solution unavailable offline.';
-      _practiceProblems = '1. Similar problem 1\n2. Similar problem 2';
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = "Couldn't solve this problem. Check your connection and try again.";
+      });
     }
-
-    setState(() {
-      _isLoading = false;
-      _solved = true;
-    });
-
-    _saveSolution();
   }
 
   void _parseSolution(String response) {
@@ -141,307 +140,174 @@ class _MathWordSolverScreenState extends State<MathWordSolverScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: const Text(
-          'Math Word Problem Solver',
-          style: TextStyle(fontWeight: FontWeight.bold),
+    final t = context.tokens;
+    return AiToolScaffold(
+      title: 'Math Word Problem Solver',
+      subtitle:
+          'Type or paste a math word problem. AI will break it down step by step.',
+      actions: [
+        if (_solved)
+          IconButton(
+            tooltip: 'Solve another',
+            icon: Icon(Icons.refresh, color: t.primary),
+            onPressed: _resetSolver,
+          ),
+      ],
+      inputForm: NexusTextField(
+        controller: _problemController,
+        hint: 'e.g., A train travels 360 km in 4 hours. What is its speed?',
+        maxLines: 6,
+        minLines: 4,
+      ),
+      generateLabel: 'Solve Step-by-Step',
+      isGenerating: _isLoading,
+      onGenerate: _solveStepByStep,
+      errorText: _error,
+      onRetry: _solveStepByStep,
+      resultBuilder: (ctx) =>
+          _solved ? _buildSolutionView(ctx) : const SizedBox.shrink(),
+      historyTitle: 'Past Solutions',
+      history: List.generate(
+        _pastSolutions.length.clamp(0, 5),
+        (i) => _buildSavedItem(context, _pastSolutions[i]),
+      ),
+    );
+  }
+
+  Widget _buildSolutionView(BuildContext ctx) {
+    final t = ctx.tokens;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        NexusCard(
+          padding: const EdgeInsets.all(AppSpace.md),
+          child: Text(
+            _problemController.text.trim(),
+            style: ctx.text.bodyMedium?.copyWith(
+              fontStyle: FontStyle.italic,
+              color: t.inkMuted,
+            ),
+          ),
         ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          if (_solved)
-            IconButton(
-              onPressed: _resetSolver,
-              icon: const Icon(Icons.refresh, color: Colors.deepPurpleAccent),
+        const SizedBox(height: AppSpace.md),
+        _buildSolutionCard(ctx, 'Given', _given, Icons.info_outline, t.primary),
+        _buildSolutionCard(ctx, 'To Find', _toFind, Icons.search, t.statusLate),
+        _buildSolutionCard(ctx, 'Formula', _formula, Icons.functions, t.secondary),
+        _buildSolutionCard(ctx, 'Solution', _solution, Icons.build, t.statusPresent),
+        if (_answer.isNotEmpty) ...[
+          NexusCard(
+            background: t.statusPresent.withValues(alpha: 0.06),
+            borderColor: t.statusPresent.withValues(alpha: 0.35),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Answer',
+                  style: ctx.text.labelLarge?.copyWith(color: t.statusPresent),
+                ),
+                const SizedBox(height: AppSpace.xs),
+                Text(_answer, style: ctx.text.titleMedium),
+              ],
             ),
+          ),
+          const SizedBox(height: AppSpace.sm),
         ],
-      ),
-      body: _solved ? _buildSolutionView() : _buildInputView(),
-    );
-  }
-
-  Widget _buildInputView() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.calculate,
-              size: 64, color: Colors.deepPurpleAccent.withAlpha(80)),
-          const SizedBox(height: 16),
-          const Text(
-            'Solve Word Problems',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Type or paste a math word problem. AI will break it down step by step.',
-            style: TextStyle(color: Colors.white.withAlpha(120), fontSize: 14),
-          ),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: TextField(
-              controller: _problemController,
-              style: const TextStyle(color: Colors.white),
-              maxLines: 6,
-              decoration: InputDecoration(
-                hintText: 'e.g., A train travels 360 km in 4 hours. What is its speed?',
-                hintStyle: TextStyle(color: Colors.white.withAlpha(80)),
-                border: InputBorder.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _isLoading || _problemController.text.trim().isEmpty
-                  ? null
-                  : _solveStepByStep,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Colors.deepPurpleAccent.withAlpha(220),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+        if (_practiceProblems.isNotEmpty) ...[
+          NexusCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Practice Problems',
+                  style: ctx.text.labelLarge?.copyWith(color: t.primary),
                 ),
-              ),
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.psychology),
-              label: Text(
-                _isLoading ? 'Solving...' : 'Solve Step-by-Step',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+                const SizedBox(height: AppSpace.xs),
+                Text(
+                  _practiceProblems,
+                  style: ctx.text.bodyMedium?.copyWith(
+                    color: t.inkMuted,
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
-          if (_pastSolutions.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            const Text(
-              'Past Solutions',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...List.generate(_pastSolutions.length.clamp(0, 5), (i) {
-              final s = _pastSolutions[i];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      (s['problem'] as String?) ?? '',
-                      style: TextStyle(
-                        color: Colors.white.withAlpha(200),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Answer: ${s['answer'] ?? ''}',
-                      style: TextStyle(
-                        color: Colors.tealAccent.withAlpha(200),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ).animate().fade();
-            }),
-          ],
+          const SizedBox(height: AppSpace.sm),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSolutionView() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.deepPurpleAccent.withAlpha(40)),
-            ),
-            child: Text(
-              _problemController.text.trim(),
-              style: TextStyle(
-                color: Colors.white.withAlpha(200),
-                fontSize: 14,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _buildSolutionCard('Given', _given, Icons.info_outline, Colors.blueAccent),
-          _buildSolutionCard('To Find', _toFind, Icons.search, Colors.amberAccent),
-          _buildSolutionCard('Formula', _formula, Icons.functions, Colors.deepPurpleAccent),
-          _buildSolutionCard('Solution', _solution, Icons.build, Colors.tealAccent),
-          if (_answer.isNotEmpty)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.greenAccent.withAlpha(15),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.greenAccent.withAlpha(40)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Answer',
-                    style: TextStyle(
-                      color: Colors.greenAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _answer,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ).animate().fade().scale(),
-          if (_practiceProblems.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Practice Problems',
-                    style: TextStyle(
-                      color: Colors.deepPurpleAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _practiceProblems,
-                    style: TextStyle(
-                      color: Colors.white.withAlpha(180),
-                      fontSize: 13,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ).animate().fade(),
-          ],
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _resetSolver,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurpleAccent,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: const Text(
-                'Solve Another',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
-      ),
+        const SizedBox(height: AppSpace.sm),
+        NexusButton(
+          label: 'Solve Another',
+          icon: Icons.refresh,
+          variant: NexusButtonVariant.secondary,
+          onPressed: _resetSolver,
+          fullWidth: true,
+        ),
+      ],
     );
   }
 
   Widget _buildSolutionCard(
-      String title, String content, IconData icon, Color color) {
+    BuildContext ctx,
+    String title,
+    String content,
+    IconData icon,
+    Color color,
+  ) {
+    final t = ctx.tokens;
     if (content.isEmpty) return const SizedBox.shrink();
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withAlpha(40)),
-      ),
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+      borderColor: color.withValues(alpha: 0.25),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Icon(icon, color: color, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
+              const SizedBox(width: AppSpace.xs),
+              Text(title, style: ctx.text.labelLarge?.copyWith(color: color)),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpace.xs),
           Text(
             content,
-            style: TextStyle(
-              color: Colors.white.withAlpha(200),
-              fontSize: 14,
-              height: 1.5,
+            style: ctx.text.bodyMedium?.copyWith(color: t.inkMuted, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSavedItem(BuildContext context, Map<String, dynamic> s) {
+    final t = context.tokens;
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.xs),
+      padding: const EdgeInsets.all(AppSpace.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.calculate, color: t.secondary, size: 18),
+          const SizedBox(width: AppSpace.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (s['problem'] as String?) ?? '',
+                  style: context.text.labelMedium?.copyWith(color: t.ink),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: AppSpace.xxs),
+                Text(
+                  'Answer: ${s['answer'] ?? ''}',
+                  style: context.text.bodySmall?.copyWith(color: t.secondary),
+                ),
+              ],
             ),
           ),
         ],
       ),
-    ).animate().fade().slideY(begin: 0.05);
+    );
   }
 }

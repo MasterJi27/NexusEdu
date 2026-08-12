@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/local_history_store.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_section_header.dart';
 
 class JeeNeetTrainerScreen extends StatefulWidget {
   const JeeNeetTrainerScreen({super.key});
@@ -26,6 +31,8 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
   int _timeLeft = 60;
   Timer? _timer;
   List<Map<String, dynamic>> _results = [];
+  String? _error;
+  static const _historyStore = LocalHistoryStore('jee_neet_results');
 
   late TabController _tabController;
 
@@ -51,21 +58,12 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
   }
 
   Future<void> _loadResults() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('jee_neet_results') ?? [];
-    setState(() {
-      _results = saved
-          .map((e) => Map<String, dynamic>.from(json.decode(e)))
-          .toList();
-    });
+    final results = await _historyStore.load();
+    setState(() => _results = results);
   }
 
   Future<void> _saveResults() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      'jee_neet_results',
-      _results.map((e) => json.encode(e)).toList(),
-    );
+    await _historyStore.save(_results);
   }
 
   void _startTimer() {
@@ -84,33 +82,25 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
   Future<void> _startPractice() async {
     setState(() {
       _isLoading = true;
+      _error = null;
       _questions = [];
       _currentIndex = 0;
       _score = 0;
       _testStarted = false;
     });
 
-    final prompt = "Generate exactly 10 MCQs for $_examType ${_selectedSubject} exam. "
+    final prompt = "Generate exactly 10 MCQs for $_examType $_selectedSubject exam. "
         "Each question must have 4 options (A, B, C, D) and one correct answer. "
         "Return a JSON array. Each object must have: "
         "\"question\" (string), \"options\" (array of 4 strings), "
         "\"correctIndex\" (int 0-3), \"explanation\" (string). "
         "No markdown, no code fences. Raw JSON only.";
 
-    final result = await AiService.generateCurriculumContent(prompt);
-
-    if (!mounted) return;
-
     try {
-      String jsonStr = result.trim();
-      if (jsonStr.startsWith('```')) {
-        final lines = jsonStr.split('\n');
-        if (lines.first.startsWith('```')) lines.removeAt(0);
-        if (lines.isNotEmpty && lines.last.startsWith('```')) lines.removeLast();
-        jsonStr = lines.join('\n').trim();
-      }
+      final result = await AiService.generateStructured(prompt);
+      if (!mounted) return;
 
-      final List<dynamic> parsed = json.decode(jsonStr);
+      final List<dynamic> parsed = json.decode(result);
       setState(() {
         _questions = parsed
             .map((e) => Map<String, dynamic>.from(e as Map))
@@ -121,8 +111,12 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
         _selectedAnswer = null;
       });
       _startTimer();
-    } catch (_) {
-      setState(() => _isLoading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = "Couldn't generate practice questions. Check your connection and try again.";
+      });
     }
   }
 
@@ -169,128 +163,120 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
     final pct = (_score / _questions.length * 100).round();
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Column(
-          children: [
-            Icon(
-              pct >= 70 ? Icons.emoji_events : Icons.trending_up,
-              color: pct >= 70 ? Colors.amberAccent : Colors.deepPurpleAccent,
-              size: 48,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Practice Complete!',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildResultRow('Score', '$_score / ${_questions.length}'),
-            const SizedBox(height: 8),
-            _buildResultRow('Accuracy', '$pct%'),
-            const SizedBox(height: 8),
-            _buildResultRow('Exam', _examType),
-            const SizedBox(height: 8),
-            _buildResultRow('Subject', _selectedSubject),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              setState(() => _testStarted = false);
-            },
-            child: const Text('OK', style: TextStyle(color: Colors.tealAccent)),
-          ),
-        ],
-      ),
+      builder: (dialogCtx) {
+        final tctx = dialogCtx;
+        final t = tctx.tokens;
+        return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: AppRadius.brLg),
+              title: Column(
+                children: [
+                  Icon(
+                    pct >= 70 ? Icons.emoji_events : Icons.trending_up,
+                    color: pct >= 70 ? t.statusLate : t.primary,
+                    size: 48,
+                  ),
+                  const SizedBox(height: AppSpace.xs),
+                  Text(
+                    'Practice Complete!',
+                    style: tctx.text.titleMedium?.copyWith(
+                      color: t.ink,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildResultRow(tctx, 'Score', '$_score / ${_questions.length}'),
+                  const SizedBox(height: AppSpace.xs),
+                  _buildResultRow(tctx, 'Accuracy', '$pct%'),
+                  const SizedBox(height: AppSpace.xs),
+                  _buildResultRow(tctx, 'Exam', _examType),
+                  const SizedBox(height: AppSpace.xs),
+                  _buildResultRow(tctx, 'Subject', _selectedSubject),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogCtx);
+                    setState(() => _testStarted = false);
+                  },
+                  child: Text(
+                    'OK',
+                    style: tctx.text.labelLarge?.copyWith(color: t.secondary),
+                  ),
+                ),
+              ],
+            );
+      },
     );
   }
 
-  Widget _buildResultRow(String label, String value) {
+  Widget _buildResultRow(BuildContext ctx, String label, String value) {
+    final t = ctx.tokens;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: TextStyle(color: Colors.white.withAlpha(150))),
-        Text(value,
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold)),
+        Text(label, style: ctx.text.bodyMedium?.copyWith(color: t.inkMuted)),
+        Text(
+          value,
+          style: ctx.text.bodyMedium?.copyWith(
+            color: t.ink,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: const Text(
-          'JEE/NEET Trainer',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+    return NexusScreen(
+      title: 'JEE/NEET Trainer',
       body: _testStarted && _questions.isNotEmpty
-          ? _buildQuizView()
-          : _buildSetupView(),
+          ? _buildQuizView(context)
+          : _buildSetupView(context),
     );
   }
 
-  Widget _buildSetupView() {
+  Widget _buildSetupView(BuildContext ctx) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildExamTypeSelector(),
-          const SizedBox(height: 16),
-          _buildSubjectTabs(),
-          const SizedBox(height: 20),
+          _buildExamTypeSelector(ctx),
+          const SizedBox(height: AppSpace.md),
+          _buildSubjectTabs(ctx),
+          const SizedBox(height: AppSpace.lg),
           SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
+            child: NexusButton(
+              label: _isLoading ? 'Generating...' : 'Start Practice',
+              icon: Icons.play_arrow,
+              isLoading: _isLoading,
               onPressed: _isLoading ? null : _startPractice,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Colors.deepPurpleAccent.withAlpha(220),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.play_arrow),
-              label: Text(
-                _isLoading ? 'Generating...' : 'Start Practice',
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+              fullWidth: true,
             ),
           ),
-          const SizedBox(height: 24),
-          if (_results.isNotEmpty) ...[
-            const Text(
-              'Recent Results',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpace.md),
+            NexusBanner(
+              message: _error!,
+              kind: NexusBannerKind.error,
+              actionLabel: 'Retry',
+              onAction: _startPractice,
             ),
-            const SizedBox(height: 12),
+          ],
+          const SizedBox(height: AppSpace.xl),
+          if (_results.isNotEmpty) ...[
+            const NexusSectionHeader(title: 'Recent Results', spaceAbove: 0),
+            const SizedBox(height: AppSpace.sm),
             ...List.generate(_results.length.clamp(0, 10), (i) {
               final r = _results[i];
-              return _buildResultCard(r);
+              return _buildResultCard(ctx, r);
             }),
           ],
         ],
@@ -298,25 +284,18 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
     );
   }
 
-  Widget _buildExamTypeSelector() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
-      ),
+  Widget _buildExamTypeSelector(BuildContext ctx) {
+    final t = ctx.tokens;
+    return NexusCard(
+      padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Exam Type',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withAlpha(150),
-            ),
+            style: ctx.text.labelSmall?.copyWith(color: t.inkMuted),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpace.sm),
           Row(
             children: ['JEE Main', 'JEE Advanced', 'NEET'].map((type) {
               final isSelected = _examType == type;
@@ -333,27 +312,20 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
                   },
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
                     decoration: BoxDecoration(
-                      color: isSelected
-                          ? Colors.deepPurpleAccent.withAlpha(40)
-                          : Colors.white.withAlpha(10),
-                      borderRadius: BorderRadius.circular(12),
+                      color: isSelected ? t.primaryTint : t.surfaceAlt,
+                      borderRadius: AppRadius.brMd,
                       border: Border.all(
-                        color: isSelected
-                            ? Colors.deepPurpleAccent
-                            : Colors.white.withAlpha(15),
+                        color: isSelected ? t.primaryTintBorder : t.border,
                       ),
                     ),
                     child: Center(
                       child: Text(
                         type,
-                        style: TextStyle(
-                          color: isSelected
-                              ? Colors.deepPurpleAccent
-                              : Colors.white.withAlpha(150),
+                        style: ctx.text.labelSmall?.copyWith(
+                          color: isSelected ? t.primary : t.inkMuted,
                           fontWeight: FontWeight.bold,
-                          fontSize: 13,
                         ),
                       ),
                     ),
@@ -364,15 +336,16 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
           ),
         ],
       ),
-    ).animate().fade().slideY(begin: -0.06);
+    );
   }
 
-  Widget _buildSubjectTabs() {
+  Widget _buildSubjectTabs(BuildContext ctx) {
+    final t = ctx.tokens;
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(14),
+        color: t.surface,
+        borderRadius: AppRadius.brMd,
       ),
       child: Row(
         children: _subjectsByExam[_examType]!.map((subject) {
@@ -381,22 +354,19 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
             child: GestureDetector(
               onTap: () => setState(() => _selectedSubject = subject),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? Colors.deepPurpleAccent.withAlpha(40)
+                      ? t.primaryTint
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.brSm,
                 ),
                 child: Center(
                   child: Text(
                     subject,
-                    style: TextStyle(
-                      color: isSelected
-                          ? Colors.deepPurpleAccent
-                          : Colors.white.withAlpha(120),
+                    style: ctx.text.labelSmall?.copyWith(
+                      color: isSelected ? t.primary : t.inkMuted,
                       fontWeight: FontWeight.bold,
-                      fontSize: 13,
                     ),
                   ),
                 ),
@@ -405,21 +375,25 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
           );
         }).toList(),
       ),
-    ).animate().fade(delay: 100.ms);
+    );
   }
 
-  Widget _buildQuizView() {
+  Widget _buildQuizView(BuildContext ctx) {
+    final t = ctx.tokens;
     final q = _questions[_currentIndex];
     final options = List<String>.from(q['options'] ?? []);
     final progress = (_currentIndex + 1) / _questions.length;
-    final timerColor =
-        _timeLeft > 30 ? Colors.greenAccent : _timeLeft > 10 ? Colors.orangeAccent : Colors.redAccent;
+    final timerColor = _timeLeft > 30
+        ? t.statusPresent
+        : _timeLeft > 10
+            ? t.statusLate
+            : t.statusAbsent;
 
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Color(0xFF1E1E1E)),
+          padding: const EdgeInsets.all(AppSpace.md),
+          color: t.surface,
           child: Column(
             children: [
               Row(
@@ -427,17 +401,19 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
                 children: [
                   Text(
                     'Q${_currentIndex + 1}/${_questions.length}',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16),
+                    style: ctx.text.titleMedium?.copyWith(
+                      color: t.ink,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpace.sm,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
-                      color: timerColor.withAlpha(30),
-                      borderRadius: BorderRadius.circular(10),
+                      color: timerColor.withValues(alpha: 0.2),
+                      borderRadius: AppRadius.brSm,
                     ),
                     child: Row(
                       children: [
@@ -445,7 +421,7 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
                         const SizedBox(width: 4),
                         Text(
                           '$_timeLeft s',
-                          style: TextStyle(
+                          style: ctx.text.labelLarge?.copyWith(
                             color: timerColor,
                             fontWeight: FontWeight.bold,
                           ),
@@ -455,59 +431,59 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
                   ),
                   Text(
                     'Score: $_score',
-                    style: const TextStyle(
-                        color: Colors.tealAccent, fontWeight: FontWeight.bold),
+                    style: ctx.text.titleMedium?.copyWith(
+                      color: t.secondary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpace.xs),
               LinearProgressIndicator(
                 value: progress,
-                backgroundColor: Colors.white.withAlpha(15),
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(Colors.deepPurpleAccent),
-                borderRadius: BorderRadius.circular(4),
+                backgroundColor: t.surfaceAlt,
+                valueColor: AlwaysStoppedAnimation<Color>(t.primary),
+                borderRadius: AppRadius.brSm,
               ),
             ],
           ),
         ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpace.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   q['question'] ?? '',
-                  style: const TextStyle(
-                    fontSize: 18,
+                  style: ctx.text.titleMedium?.copyWith(
+                    color: t.ink,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: AppSpace.lg),
                 ...List.generate(options.length, (i) {
                   final isCorrect = i == q['correctIndex'];
                   final isSelected = _selectedAnswer == i;
-                  Color bgColor = const Color(0xFF1E1E1E);
-                  Color borderColor = Colors.white.withAlpha(15);
+                  Color bgColor = t.surface;
+                  Color borderColor = t.border;
                   if (_answered) {
                     if (isCorrect) {
-                      bgColor = Colors.green.withAlpha(30);
-                      borderColor = Colors.greenAccent;
+                      bgColor = t.statusPresent.withValues(alpha: 0.15);
+                      borderColor = t.statusPresent;
                     } else if (isSelected && !isCorrect) {
-                      bgColor = Colors.red.withAlpha(30);
-                      borderColor = Colors.redAccent;
+                      bgColor = t.statusAbsent.withValues(alpha: 0.15);
+                      borderColor = t.statusAbsent;
                     }
                   }
                   return GestureDetector(
                     onTap: () => _selectAnswer(i),
                     child: Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(14),
+                      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+                      padding: const EdgeInsets.all(AppSpace.md),
                       decoration: BoxDecoration(
                         color: bgColor,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: AppRadius.brMd,
                         border: Border.all(color: borderColor),
                       ),
                       child: Row(
@@ -517,57 +493,56 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
                             height: 28,
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? Colors.deepPurpleAccent.withAlpha(40)
-                                  : Colors.white.withAlpha(10),
-                              borderRadius: BorderRadius.circular(8),
+                                  ? t.primaryTint
+                                  : t.surfaceAlt,
+                              borderRadius: AppRadius.brSm,
                             ),
                             child: Center(
                               child: Text(
                                 String.fromCharCode(65 + i),
-                                style: TextStyle(
+                                style: ctx.text.labelMedium?.copyWith(
                                   color: isSelected
-                                      ? Colors.deepPurpleAccent
-                                      : Colors.white.withAlpha(150),
+                                      ? t.primary
+                                      : t.inkMuted,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: AppSpace.sm),
                           Expanded(
                             child: Text(
                               options[i],
-                              style: TextStyle(
-                                color: Colors.white.withAlpha(200),
-                                fontSize: 14,
+                              style: ctx.text.bodyMedium?.copyWith(
+                                color: t.ink,
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ).animate().fade(delay: Duration(milliseconds: 50 * i));
+                  );
                 }),
                 if (_answered) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpace.md),
                   Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(AppSpace.md),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withAlpha(15),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue.withAlpha(30)),
+                      color: t.primaryTint,
+                      borderRadius: AppRadius.brMd,
+                      border: Border.all(color: t.primaryTintBorder),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.lightbulb,
-                            color: Colors.amberAccent, size: 20),
-                        const SizedBox(width: 10),
+                        Icon(Icons.lightbulb,
+                            color: t.statusLate, size: 20),
+                        const SizedBox(width: AppSpace.sm),
                         Expanded(
                           child: Text(
                             q['explanation'] ?? '',
-                            style: TextStyle(
-                              color: Colors.white.withAlpha(180),
+                            style: ctx.text.bodyMedium?.copyWith(
+                              color: t.ink,
                               height: 1.5,
                             ),
                           ),
@@ -575,25 +550,18 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpace.md),
                   SizedBox(
                     width: double.infinity,
-                    child: FilledButton(
+                    child: NexusButton(
+                      label: _currentIndex < _questions.length - 1
+                          ? 'Next Question'
+                          : 'Finish',
+                      icon: _currentIndex < _questions.length - 1
+                          ? Icons.arrow_forward
+                          : Icons.check,
                       onPressed: _nextQuestion,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        backgroundColor: Colors.tealAccent,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        _currentIndex < _questions.length - 1
-                            ? 'Next Question'
-                            : 'Finish',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      fullWidth: true,
                     ),
                   ),
                 ],
@@ -605,55 +573,46 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
     );
   }
 
-  Widget _buildResultCard(Map<String, dynamic> r) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
+  Widget _buildResultCard(BuildContext ctx, Map<String, dynamic> r) {
+    final t = ctx.tokens;
+    final pct = r['percentage'] as int;
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.xs),
+      padding: const EdgeInsets.all(AppSpace.sm),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: Colors.deepPurpleAccent.withAlpha(30),
-              borderRadius: BorderRadius.circular(8),
+              color: t.primaryTint,
+              borderRadius: AppRadius.brSm,
             ),
-            child: const Icon(Icons.quiz, color: Colors.deepPurpleAccent, size: 18),
+            child: Icon(Icons.quiz, color: t.primary, size: 18),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpace.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   '${r['exam']} - ${r['subject']}',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(200),
-                    fontSize: 13,
+                  style: ctx.text.labelMedium?.copyWith(
+                    color: t.ink,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   'Score: ${r['score']}/${r['total']} (${r['percentage']}%)',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(120),
-                    fontSize: 12,
-                  ),
+                  style: ctx.text.labelSmall?.copyWith(color: t.inkMuted),
                 ),
               ],
             ),
           ),
           Text(
             '${r['percentage']}%',
-            style: TextStyle(
-              color: (r['percentage'] as int) >= 70
-                  ? Colors.greenAccent
-                  : Colors.orangeAccent,
+            style: ctx.text.titleMedium?.copyWith(
+              color: pct >= 70 ? t.statusPresent : t.statusLate,
               fontWeight: FontWeight.bold,
-              fontSize: 16,
             ),
           ),
         ],

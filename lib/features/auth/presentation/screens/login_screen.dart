@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:nexus_edu/core/services/secure_api_service.dart';
+import 'package:nexus_edu/app/auth_state.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,208 +15,171 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  /// Persona chosen on the welcome screen. Read-only here by design: the sign
+  /// in form must not be able to change an account's role, so this only labels
+  /// the guest button and carries the choice through to signup.
+  late final String _selectedRole =
+      AuthState.instance.selectedRole ?? 'student';
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _error;
-  late AnimationController _animController;
-  late Animation<double> _fadeAnimation;
 
-  @override
-  void initState() {
-    super.initState();
-    _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
-    _fadeAnimation = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
-    _animController.forward();
-  }
+  String get _roleLabel => switch (_selectedRole) {
+    'parent' => 'Parent',
+    'teacher' => 'Teacher',
+    _ => 'Student',
+  };
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _animController.dispose();
     super.dispose();
   }
 
   Future<void> _login() async {
-    setState(() { _isLoading = true; _error = null; });
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
-      setState(() { _isLoading = false; _error = 'Please fill all fields'; });
+      setState(() => _error = 'Enter your email and password.');
       return;
     }
 
-    try {
-      final api = SecureApiService();
-      final result = await api.login(email, password);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
-      if (result['error'] != null) {
-        // Fallback to local auth if proxy is offline
-        final prefs = await SharedPreferences.getInstance();
-        final savedEmail = prefs.getString('user_email');
-        final savedPassword = prefs.getString('user_password');
+    // Deliberately no setSelectedRole here: signing in must never change the
+    // account's role. resolveHomeAfterLogin adopts whatever the server says.
+    final result = await AuthState.instance.login(email, password);
+    if (!mounted) return;
 
-        if (savedEmail == email && savedPassword == password) {
-          await prefs.setBool('is_logged_in', true);
-          await prefs.setBool('privacy_accepted', true);
-          if (mounted) context.go('/onboarding');
-          return;
-        } else if (savedEmail == null) {
-          await prefs.setString('user_email', email);
-          await prefs.setString('user_password', password);
-          await prefs.setBool('is_logged_in', true);
-          await prefs.setBool('privacy_accepted', true);
-          if (mounted) context.go('/onboarding');
-          return;
-        }
-
-        setState(() { _isLoading = false; _error = result['error']; });
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_logged_in', true);
-        await prefs.setBool('privacy_accepted', true);
-        if (mounted) context.go('/onboarding');
-      }
-    } catch (e) {
-      // Fallback to local auth
-      final prefs = await SharedPreferences.getInstance();
-      final savedEmail = prefs.getString('user_email');
-      final savedPassword = prefs.getString('user_password');
-
-      if (savedEmail == email && savedPassword == password) {
-        await prefs.setBool('is_logged_in', true);
-        await prefs.setBool('privacy_accepted', true);
-        if (mounted) context.go('/onboarding');
-      } else if (savedEmail == null) {
-        await prefs.setString('user_email', email);
-        await prefs.setString('user_password', password);
-        await prefs.setBool('is_logged_in', true);
-        await prefs.setBool('privacy_accepted', true);
-        if (mounted) context.go('/onboarding');
-      } else {
-        setState(() { _isLoading = false; _error = 'Invalid email or password'; });
-      }
+    switch (result) {
+      case Failure():
+        setState(() {
+          _isLoading = false;
+          _error = result.message;
+        });
+        return;
+      case Success():
+        break;
     }
+
+    if (mounted) context.go(await AuthState.instance.resolveHomeAfterLogin());
+  }
+
+  /// Guests have no account, so the persona picked on the welcome screen is
+  /// purely a local preview of that dashboard — nothing is sent to the server.
+  Future<void> _continueAsGuest() async {
+    await AuthState.instance.markGuest();
+    if (mounted) context.go(AuthState.instance.roleHome);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+    final t = context.tokens;
+    return NexusScreen(
+      title: 'Log in',
+      body: Center(
+        child: SingleChildScrollView(
+          padding: AppSpace.pageH,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 60),
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFF7C5CFF), Color(0xFF55D6A4)]),
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: [
-                      BoxShadow(color: const Color(0xFF7C5CFF).withOpacity(0.3), blurRadius: 30, spreadRadius: 5),
-                    ],
-                  ),
-                  child: const Icon(Icons.school, color: Colors.white, size: 50),
+                const SizedBox(height: AppSpace.xxl),
+                Text(
+                  'Nexus Edu',
+                  style: context.text.displaySmall?.copyWith(color: t.ink),
                 ),
-                const SizedBox(height: 24),
-                const Text('NexusEdu', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 8),
-                Text('Your AI-powered study companion', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14)),
-                const SizedBox(height: 48),
-                _buildTextField(_emailController, 'Email', Icons.email_outlined, false),
-                const SizedBox(height: 16),
-                _buildTextField(_passwordController, 'Password', Icons.lock_outlined, true),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => context.push('/forgot-password'),
-                    child: const Text('Forgot Password?', style: TextStyle(color: Color(0xFF7C5CFF), fontSize: 13)),
-                  ),
+                const SizedBox(height: AppSpace.xxs),
+                Text(
+                  'Welcome back. Sign in, or keep browsing as a guest.',
+                  style: context.text.bodyMedium?.copyWith(color: t.inkMuted),
                 ),
-                if (_error != null) ...[
-                  const SizedBox(height: 8),
-                  Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
-                ],
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _login,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF7C5CFF),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 0,
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Text('Log In', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
+                const SizedBox(height: AppSpace.xl),
+                NexusTextField(
+                  controller: _emailController,
+                  label: 'Email',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpace.sm),
+                NexusTextField(
+                  controller: _passwordController,
+                  label: 'Password',
+                  icon: Icons.lock_outlined,
+                  isPassword: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _login(),
+                ),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("Don't have an account? ", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13)),
-                    GestureDetector(
-                      onTap: () => context.push('/signup'),
-                      child: const Text('Sign Up', style: TextStyle(color: Color(0xFF7C5CFF), fontWeight: FontWeight.bold, fontSize: 13)),
+                    TextButton(
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                      child: Text(
+                        _obscurePassword ? 'Show password' : 'Hide password',
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => context.push('/forgot-password'),
+                      child: const Text('Forgot password?'),
                     ),
                   ],
                 ),
-                const SizedBox(height: 40),
-                GestureDetector(
-                  onTap: () {
-                    prefs_setGuest();
-                    context.go('/dashboard');
-                  },
-                  child: Text('Continue as Guest', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+                if (_error != null) ...[
+                  const SizedBox(height: AppSpace.xs),
+                  NexusBanner(message: _error!, kind: NexusBannerKind.error),
+                ],
+                const SizedBox(height: AppSpace.md),
+                NexusButton(
+                  label: 'Log in',
+                  isLoading: _isLoading,
+                  onPressed: _isLoading ? null : _login,
+                  fullWidth: true,
                 ),
+                const SizedBox(height: AppSpace.sm),
+                NexusButton(
+                  label: 'Continue as $_roleLabel guest',
+                  icon: Icons.explore_outlined,
+                  variant: NexusButtonVariant.secondary,
+                  fullWidth: true,
+                  onPressed: _isLoading ? null : _continueAsGuest,
+                ),
+                const SizedBox(height: AppSpace.md),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "Don't have an account? ",
+                      style: context.text.bodySmall,
+                    ),
+                    GestureDetector(
+                      onTap: () => context.push('/signup?role=$_selectedRole'),
+                      child: Text(
+                        'Sign up',
+                        style: context.text.bodySmall?.copyWith(
+                          color: t.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.xxl),
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> prefs_setGuest() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('privacy_accepted', true);
-  }
-
-  Widget _buildTextField(TextEditingController controller, String label, IconData icon, bool isPassword) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF2A2A3E)),
-      ),
-      child: TextField(
-        controller: controller,
-        obscureText: isPassword ? _obscurePassword : false,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-          prefixIcon: Icon(icon, color: const Color(0xFF7C5CFF)),
-          suffixIcon: isPassword ? IconButton(
-            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white38),
-            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-          ) : null,
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         ),
       ),
     );

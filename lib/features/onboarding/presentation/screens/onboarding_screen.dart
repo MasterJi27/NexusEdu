@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:nexus_edu/app/auth_state.dart';
+import 'package:nexus_edu/core/data/learning_catalog.dart';
+import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
+import 'package:nexus_edu/core/theme/app_theme.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+
+const List<String> _boards = ['CBSE', 'ICSE', 'State Board', 'IB', 'Other'];
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -13,154 +22,306 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
+  String? _selectedGrade;
+  String? _selectedBoard;
+  final Set<String> _selectedSubjects = {};
+
+  bool get _canProceed {
+    switch (_currentPage) {
+      case 0:
+        return _selectedGrade != null;
+      case 1:
+        return _selectedBoard != null;
+      default:
+        return true;
+    }
+  }
+
+  Future<void> _saveProfile({String? role}) async {
+    if (_selectedGrade != null) {
+      await LearnerProfileService.setSelectedClass(_selectedGrade);
+    }
+    if (_selectedBoard != null) {
+      await LearnerProfileService.setBoard(_selectedBoard!);
+    }
+    await LearnerProfileService.setSubjects(_selectedSubjects.toList());
+    await LearnerProfileService.markOnboardingProfileDone();
+    await AuthState.instance.markOnboardingDone();
+
+    if (SecureApiService().isLoggedIn) {
+      await SecureApiService().updateProfile(
+        gradeLevel: _selectedGrade,
+        schoolBoard: _selectedBoard,
+        strongSubjects: _selectedSubjects.toList(),
+        role: role,
+      );
+    }
+  }
+
+  void _next() {
+    if (!_canProceed) return;
+    if (_currentPage == 2) {
+      _saveProfile();
+    }
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeIn,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
-      body: Stack(
-        children: [
-          Positioned(
-            top: -100,
-            left: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.deepPurpleAccent.withAlpha(50),
-              ),
-            ),
-          ).animate(onPlay: (c) => c.repeat()).rotate(duration: 10.seconds),
-          
-          PageView(
-            controller: _pageController,
-            onPageChanged: (idx) => setState(() => _currentPage = idx),
-            children: [
-              _buildPage(
-                'AI Custom Roadmaps',
-                'Instantly generate learning paths for any topic, formatted as interactive skill trees.',
-                Icons.account_tree,
-                Colors.blueAccent,
-              ),
-              _buildPage(
-                'Socratic Voice Tutor',
-                'Don\'t just read answers. Speak to your AI Tutor and let it guide your critical thinking.',
-                Icons.record_voice_over,
-                Colors.redAccent,
-              ),
-              _buildPage(
-                '3D Augmented Reality',
-                'Explore biology, physics, and engineering through interactive 3D models.',
-                Icons.view_in_ar,
-                Colors.tealAccent,
-              ),
-              _buildAuthPage(),
-            ],
-          ),
-          
-          if (_currentPage < 3)
-            Positioned(
-              bottom: 50,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (index) {
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    height: 8,
-                    width: _currentPage == index ? 24 : 8,
-                    decoration: BoxDecoration(
-                      color: _currentPage == index ? Colors.white : Colors.white30,
-                      borderRadius: BorderRadius.circular(4),
+    final subjectOptions = _selectedGrade != null
+        ? LearningCatalog.subjectsFor(
+            _selectedGrade!,
+          ).map((s) => s.name).toList()
+        : const <String>[
+            'Physics',
+            'Chemistry',
+            'Mathematics',
+            'Biology',
+            'English',
+          ];
+
+    return Theme(
+      data: AppTheme.darkTheme,
+      child: Builder(
+        builder: (context) {
+          final t = context.tokens;
+          return Scaffold(
+            backgroundColor: t.page,
+            body: Stack(
+              children: [
+                PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  onPageChanged: (idx) => setState(() => _currentPage = idx),
+                  children: [
+                    _buildChoiceStep(
+                      context,
+                      title: 'What\'s your grade?',
+                      subtitle:
+                          'This tailors your shorts, quizzes and NCERT solutions.',
+                      options: LearningCatalog.classes,
+                      selected: _selectedGrade == null
+                          ? const {}
+                          : {_selectedGrade!},
+                      onSelect: (value) =>
+                          setState(() => _selectedGrade = value),
                     ),
-                  );
-                }),
-              ),
+                    _buildChoiceStep(
+                      context,
+                      title: 'Which board do you follow?',
+                      subtitle: 'We\'ll match content to your curriculum.',
+                      options: _boards,
+                      selected: _selectedBoard == null
+                          ? const {}
+                          : {_selectedBoard!},
+                      onSelect: (value) =>
+                          setState(() => _selectedBoard = value),
+                    ),
+                    _buildChoiceStep(
+                      context,
+                      title: 'Pick subjects you want to focus on',
+                      subtitle:
+                          'Optional — you can change this anytime in Profile.',
+                      options: subjectOptions,
+                      selected: _selectedSubjects,
+                      multiSelect: true,
+                      onSelect: (value) => setState(() {
+                        if (_selectedSubjects.contains(value)) {
+                          _selectedSubjects.remove(value);
+                        } else {
+                          _selectedSubjects.add(value);
+                        }
+                      }),
+                    ),
+                    _buildAuthPage(context),
+                  ],
+                ),
+
+                if (_currentPage < 3)
+                  Positioned(
+                    bottom: 50,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(4, (index) {
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: AppSpace.xxs,
+                          ),
+                          height: 8,
+                          width: _currentPage == index ? 24 : 8,
+                          decoration: BoxDecoration(
+                            color: _currentPage == index ? t.ink : t.inkFaint,
+                            borderRadius: AppRadius.brPill,
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+
+                if (_currentPage < 3)
+                  Positioned(
+                    bottom: 36,
+                    right: 24,
+                    child: FloatingActionButton(
+                      backgroundColor: _canProceed ? t.primary : t.surfaceAlt,
+                      foregroundColor: _canProceed ? t.onPrimary : t.inkFaint,
+                      onPressed: _canProceed ? _next : null,
+                      child: const Icon(Icons.arrow_forward_ios),
+                    ),
+                  ),
+              ],
             ),
-            
-          if (_currentPage < 3)
-            Positioned(
-              bottom: 36,
-              right: 24,
-              child: FloatingActionButton(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                onPressed: () => _pageController.nextPage(duration: 300.ms, curve: Curves.easeIn),
-                child: const Icon(Icons.arrow_forward_ios),
-              ),
-            )
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildPage(String title, String desc, IconData icon, Color color) {
+  Widget _buildChoiceStep(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required List<String> options,
+    required Set<String> selected,
+    required ValueChanged<String> onSelect,
+    bool multiSelect = false,
+  }) {
+    final t = context.tokens;
     return Padding(
-      padding: const EdgeInsets.all(40.0),
+      padding: EdgeInsets.fromLTRB(
+        AppSpace.xl,
+        MediaQuery.paddingOf(context).top + AppSpace.xxl,
+        AppSpace.xl,
+        140,
+      ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 120, color: color).animate().scale(duration: 500.ms, curve: Curves.easeOutBack),
-          const SizedBox(height: 48),
           Text(
             title,
-            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-            textAlign: TextAlign.center,
-          ).animate().slideY(begin: 0.5, end: 0).fade(),
-          const SizedBox(height: 24),
+            style: context.text.displaySmall?.copyWith(
+              color: t.ink,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: AppSpace.sm),
           Text(
-            desc,
-            style: const TextStyle(fontSize: 18, color: Colors.white70, height: 1.5),
-            textAlign: TextAlign.center,
-          ).animate().slideY(begin: 0.5, end: 0, delay: 200.ms).fade(),
+            subtitle,
+            style: context.text.bodyMedium?.copyWith(
+              color: t.inkMuted,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: AppSpace.xl),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: AppSpace.sm,
+                runSpacing: AppSpace.sm,
+                children: options.map((option) {
+                  final isSelected = selected.contains(option);
+                  return ChoiceChip(
+                    label: Text(
+                      option,
+                      style: TextStyle(
+                        color: isSelected ? t.onPrimary : t.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    selected: isSelected,
+                    onSelected: (_) => onSelect(option),
+                    selectedColor: t.ink,
+                    backgroundColor: t.surfaceAlt,
+                    side: BorderSide(
+                      color: isSelected ? t.borderStrong : t.border,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpace.sm,
+                      vertical: AppSpace.xs,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildAuthPage() {
+  Widget _buildAuthPage(BuildContext context) {
+    final t = context.tokens;
     return Padding(
-      padding: const EdgeInsets.all(40.0),
+      padding: const EdgeInsets.all(AppSpace.xxl),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.hub, size: 100, color: Colors.deepPurpleAccent).animate().scale(),
-          const SizedBox(height: 32),
-          const Text('Welcome to NexusEdu', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
-          const SizedBox(height: 12),
-          const Text('Who are you?', style: TextStyle(fontSize: 18, color: Colors.white54)),
-          const SizedBox(height: 32),
+          Icon(Icons.hub, size: 100, color: t.primary),
+          const SizedBox(height: AppSpace.xl),
+          Text(
+            'Welcome to NexusEdu',
+            style: context.text.displaySmall?.copyWith(
+              color: t.ink,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: AppSpace.sm),
+          Text(
+            'Who are you?',
+            style: context.text.titleMedium?.copyWith(color: t.inkMuted),
+          ),
+          const SizedBox(height: AppSpace.xl),
           _buildRoleCard(
+            context,
             title: 'Student',
             subtitle: 'Personalized learning & AI tutor',
             icon: Icons.school,
-            gradientColors: [Colors.blueAccent, Colors.blue.shade900],
             route: '/dashboard',
+            role: 'student',
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.md),
           _buildRoleCard(
+            context,
             title: 'Parent',
             subtitle: 'Track your child\'s progress',
             icon: Icons.family_restroom,
-            gradientColors: [Colors.tealAccent, Colors.teal.shade900],
             route: '/parent-dashboard',
+            role: 'parent',
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.md),
           _buildRoleCard(
+            context,
             title: 'Teacher',
             subtitle: 'Manage classes & assignments',
             icon: Icons.co_present,
-            gradientColors: [Colors.orangeAccent, Colors.deepOrange.shade900],
             route: '/teacher-dashboard',
+            role: 'teacher',
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: AppSpace.xl),
+          NexusButton(
+            label: 'Sign in with an account',
+            icon: Icons.login,
+            variant: NexusButtonVariant.secondary,
+            fullWidth: true,
+            onPressed: () => context.go('/login'),
+          ),
+          const SizedBox(height: AppSpace.xs),
           TextButton(
-            onPressed: () => context.go('/dashboard'),
-            child: const Text(
+            onPressed: () async {
+              await _saveProfile();
+              if (context.mounted) {
+                context.go(AuthState.instance.roleHome);
+              }
+            },
+            child: Text(
               'Continue as Guest',
-              style: TextStyle(color: Colors.white38, fontSize: 14),
+              style: context.text.labelLarge?.copyWith(color: t.inkFaint),
             ),
           ),
         ],
@@ -168,70 +329,52 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _buildRoleCard({
+  Widget _buildRoleCard(
+    BuildContext ctx, {
     required String title,
     required String subtitle,
     required IconData icon,
-    required List<Color> gradientColors,
     required String route,
+    required String role,
   }) {
-    return GestureDetector(
-      onTap: () => context.go(route),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: gradientColors,
+    final t = ctx.tokens;
+    return NexusCard(
+      background: t.primaryTint,
+      borderColor: t.primaryTintBorder,
+      onTap: () async {
+        await _saveProfile(role: role);
+        if (ctx.mounted) ctx.go(route);
+      },
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppSpace.md),
+            decoration: BoxDecoration(
+              color: t.surface.withValues(alpha: 0.55),
+              borderRadius: AppRadius.brMd,
+            ),
+            child: Icon(icon, color: t.primary, size: 36),
           ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withAlpha(40), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: gradientColors[0].withAlpha(50),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
+          const SizedBox(width: AppSpace.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: context.text.headlineSmall?.copyWith(color: t.ink),
+                ),
+                const SizedBox(height: AppSpace.xxs),
+                Text(
+                  subtitle,
+                  style: context.text.bodySmall?.copyWith(color: t.inkMuted),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(30),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(icon, color: Colors.white, size: 36),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 18),
-          ],
-        ),
+          ),
+          Icon(Icons.arrow_forward_ios, color: t.inkFaint, size: 18),
+        ],
       ),
-    ).animate().fade().slideY(begin: 0.15);
+    );
   }
 }
-

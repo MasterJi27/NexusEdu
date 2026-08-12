@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DailyQuizQuestion {
@@ -208,7 +209,13 @@ class DailyQuizService {
   Future<void> recordAnswer(int score) async {
     _todayScore = score;
     _todayAttempted++;
-    if (_todayAttempted >= 10) _todayCompleted = true;
+    if (_todayAttempted >= 10) {
+      _todayCompleted = true;
+      SecureApiService().logActivity('QUIZ_COMPLETED', {
+        'score': score,
+        'date': DateTime.now().toIso8601String().substring(0, 10),
+      });
+    }
     _lastQuizDate = DateTime.now();
     _save();
   }
@@ -221,13 +228,5 @@ class DailyQuizService {
     if (_lastQuizDate != null) {
       await prefs.setString('last_quiz_date', _lastQuizDate!.toIso8601String());
     }
-  }
-
-  String get timeAgo {
-    if (_lastQuizDate == null) return 'Never';
-    final diff = DateTime.now().difference(_lastQuizDate!);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
   }
 }

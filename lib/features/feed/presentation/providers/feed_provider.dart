@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
 
 class FeedState {
@@ -71,9 +72,16 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
     try {
       final localResults = LearningCatalog.searchShorts(query);
-      final apiResults = await YoutubeDiscoveryService.searchEducationalShorts(
-        query: query,
-      );
+      // The API result is best-effort: when offline (or YouTube is down) the
+      // local syllabus catalog alone still answers the topic.
+      var apiResults = const <LearningShort>[];
+      try {
+        apiResults = await YoutubeDiscoveryService.searchEducationalShorts(
+          query: query,
+        );
+      } catch (_) {
+        // Offline or API failure — fall back to the local catalog.
+      }
 
       final merged = LearningCatalog.mergeUnique(
         apiResults,
@@ -156,6 +164,7 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
 
   Future<void> markCompleted(LearningShort video) async {
     await LearnerProfileService.markShortCompleted(video.videoId);
+    SecureApiService().logActivity('SHORT_COMPLETED', {'videoId': video.videoId});
     final completed = await LearnerProfileService.getCompletedShortIds();
 
     final currentState = state.asData?.value;

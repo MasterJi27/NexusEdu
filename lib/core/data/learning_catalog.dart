@@ -545,6 +545,11 @@ class LearningCatalog {
     return merged;
   }
 
+  /// Only "$classLabel Micro-Learning" is a real, derived figure — the
+  /// "AI Tutor Practice" and "Scanner Scholar" entries this used to also
+  /// return were hardcoded ("2 of 5 doubt sessions", progress 0.65)
+  /// regardless of whether the user had ever opened either tool. PRODUCT.md:
+  /// a number not traceable to real activity must not be presented as fact.
   static List<CertificateProgress> certificatesFor({
     required String? selectedClass,
     required int completedShorts,
@@ -558,20 +563,6 @@ class LearningCatalog {
         icon: Icons.workspace_premium,
         color: Colors.amber,
         progress: baseProgress,
-      ),
-      CertificateProgress(
-        title: 'AI Tutor Practice',
-        subtitle: '2 of 5 doubt sessions',
-        icon: Icons.smart_toy,
-        color: Colors.deepPurpleAccent,
-        progress: 0.4,
-      ),
-      CertificateProgress(
-        title: 'Scanner Scholar',
-        subtitle: 'Topic-wise notes ready',
-        icon: Icons.document_scanner,
-        color: Colors.teal,
-        progress: 0.65,
       ),
     ];
   }

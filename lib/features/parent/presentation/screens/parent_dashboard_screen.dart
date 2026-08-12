@@ -1,101 +1,421 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:nexus_edu/core/services/app_settings.dart';
+import 'package:go_router/go_router.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
+import 'package:nexus_edu/shared/widgets/nexus_stat_tile.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
-class ParentDashboardScreen extends StatelessWidget {
+class ParentDashboardScreen extends StatefulWidget {
   const ParentDashboardScreen({super.key});
 
   @override
+  State<ParentDashboardScreen> createState() => _ParentDashboardScreenState();
+}
+
+class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
+  bool _isLoading = true;
+  bool _isParent = false;
+  bool _switching = false;
+  List<dynamic> _children = [];
+  List<dynamic> _pendingLinks = [];
+
+  /// Sample children shown to guests so a parent can see what the dashboard
+  /// looks like before signing in. Every value is fictional and the UI marks
+  /// it as demo — per PRODUCT.md, an on-screen number must trace to the user's
+  /// own data or be labelled.
+  static final List<Map<String, dynamic>> _demoChildren = [
+    {
+      'id': 'demo-aarav',
+      'demo': true,
+      'name': 'Aarav Sharma',
+      'gradeLevel': 'Class 10',
+      'schoolBoard': 'CBSE',
+      'xp': 2450,
+      'streak': 18,
+      'strongSubjects': ['Mathematics', 'Science'],
+      'weakSubjects': ['English'],
+    },
+    {
+      'id': 'demo-diya',
+      'demo': true,
+      'name': 'Diya Sharma',
+      'gradeLevel': 'Class 8',
+      'schoolBoard': 'CBSE',
+      'xp': 1290,
+      'streak': 6,
+      'strongSubjects': ['Hindi'],
+      'weakSubjects': ['Science', 'Social Science'],
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final api = SecureApiService();
+    if (!api.isLoggedIn) {
+      setState(() {
+        _isLoading = false;
+        _isParent = false;
+        _children = _demoChildren;
+      });
+      return;
+    }
+    if (api.role != 'parent') {
+      setState(() {
+        _isParent = false;
+        _isLoading = false;
+      });
+      return;
+    }
+    final links = await api.getParentLinks();
+    if (!mounted) return;
+    setState(() {
+      _isParent = true;
+      _children = links
+          .where((l) => (l as Map)['status'] == 'approved')
+          .toList();
+      _pendingLinks = links
+          .where((l) => (l as Map)['status'] == 'pending')
+          .toList();
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _switchToParentMode() async {
+    setState(() => _switching = true);
+    final result = await SecureApiService().updateProfile(role: 'parent');
+    if (!mounted) return;
+    if (result['error'] != null) {
+      setState(() => _switching = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result['error'].toString())));
+      return;
+    }
+    setState(() => _switching = false);
+    _load();
+  }
+
+  Future<void> _openLinkChildDialog() async {
+    final emailController = TextEditingController();
+    final linked = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Link your child'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Enter your child's NexusEdu account email. They'll need to "
+              'approve the request before you can see their progress.',
+            ),
+            const SizedBox(height: AppSpace.sm),
+            NexusTextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              label: "Child's email",
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          NexusButton(
+            label: 'Send request',
+            onPressed: () async {
+              final email = emailController.text.trim();
+              if (email.isEmpty) return;
+              final result = await SecureApiService().linkChild(email);
+              if (!dialogContext.mounted) return;
+              if (result['error'] != null) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(content: Text(result['error'].toString())),
+                );
+                return;
+              }
+              Navigator.pop(dialogContext, true);
+            },
+          ),
+        ],
+      ),
+    );
+    emailController.dispose();
+    if (linked == true) {
+      _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Request sent — you'll see their progress once they approve it.",
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _unlinkChild(String studentId) async {
+    final result = await SecureApiService().unlinkChild(studentId);
+    if (!mounted) return;
+    if (result['error'] != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result['error'].toString())));
+      return;
+    }
+    _load();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final settings = AppSettings.instance;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Parent Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildChildProfileCard().animate().fade().slideY(begin: -0.05),
-          const SizedBox(height: 20),
-          _buildStreakCard(settings).animate().fade(delay: 80.ms),
-          const SizedBox(height: 16),
-          _buildWeeklyProgress().animate().fade(delay: 160.ms),
-          const SizedBox(height: 16),
-          _buildSubjectPerformance().animate().fade(delay: 240.ms),
-          const SizedBox(height: 16),
-          _buildScreenTimeCard().animate().fade(delay: 320.ms),
-          const SizedBox(height: 16),
-          _buildWeakSubjectsCard().animate().fade(delay: 400.ms),
-          const SizedBox(height: 16),
-          _buildExamReadiness(settings).animate().fade(delay: 480.ms),
-          const SizedBox(height: 32),
-        ],
-      ),
+    return NexusScreen(
+      title: 'Parent Dashboard',
+      floatingActionButton: _isParent
+          ? FloatingActionButton.extended(
+              onPressed: _openLinkChildDialog,
+              icon: const Icon(Icons.person_add_alt),
+              label: const Text('Link child'),
+            )
+          : null,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : !SecureApiService().isLoggedIn
+          ? _buildDemoExperience()
+          : !_isParent
+          ? _buildSwitchToParentPrompt()
+          : _children.isEmpty && _pendingLinks.isEmpty
+          ? _buildEmptyState()
+          : _buildChildrenList(),
     );
   }
 
-  Widget _buildChildProfileCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [Colors.deepPurple.withAlpha(40), Colors.blueAccent.withAlpha(20)]),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.deepPurple.withAlpha(60)),
+  /// Guest view: the same dashboard shell with sample children, every number
+  /// clearly marked as demo, and one path into sign-in.
+  Widget _buildDemoExperience() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.md,
+        AppSpace.md,
+        AppSpace.md,
+        100,
       ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            radius: 30,
-            backgroundImage: NetworkImage('https://i.pravatar.cc/300'),
-          ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Alex Learner', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                SizedBox(height: 2),
-                Text('Class 12 • Science', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                SizedBox(height: 4),
-                Text('Last active: 2 hours ago', style: TextStyle(color: Colors.tealAccent, fontSize: 11)),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.green.withAlpha(30),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text('Active', style: TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+      children: [
+        NexusBanner(
+          message:
+              "You're seeing a demo. Sign in and link your child's account to see their real progress here.",
+          kind: NexusBannerKind.info,
+          actionLabel: 'Sign in',
+          onAction: () => context.go('/login'),
+        ),
+        const SizedBox(height: AppSpace.md),
+        _buildParentOverview(totalXp: 3740, bestStreak: 18),
+        const SizedBox(height: AppSpace.md),
+        Text('Linked children', style: context.text.titleMedium),
+        const SizedBox(height: AppSpace.sm),
+        for (final raw in _children)
+          _buildChildCard(Map<String, dynamic>.from(raw as Map)),
+        const SizedBox(height: AppSpace.md),
+        NexusButton(
+          label: 'Sign in to track your child',
+          icon: Icons.login,
+          fullWidth: true,
+          onPressed: () => context.go('/login'),
+        ),
+        const SizedBox(height: AppSpace.xs),
+        TextButton(
+          onPressed: () => context.go('/login'),
+          child: const Text('Create a parent account'),
+        ),
+      ],
     );
   }
 
-  Widget _buildStreakCard(AppSettings settings) {
-    final streak = settings.streak;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.orange.withAlpha(20),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.withAlpha(50)),
-      ),
-      child: Row(
+  Widget _buildPendingLinksCard() {
+    final t = context.tokens;
+    return NexusCard(
+      background: t.secondaryTint,
+      borderColor: t.secondary.withValues(alpha: 0.3),
+      margin: const EdgeInsets.only(bottom: AppSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.local_fire_department, color: Colors.orange, size: 36),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
             children: [
-              Text('Study Streak: $streak days', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 2),
-              Text(
-                streak >= 7 ? 'Excellent consistency!' : streak >= 3 ? 'Good progress.' : 'Needs improvement.',
-                style: TextStyle(color: Colors.white.withAlpha(160), fontSize: 12),
+              Icon(Icons.hourglass_top, color: t.secondary, size: 20),
+              const SizedBox(width: AppSpace.xs),
+              Expanded(
+                child: Text(
+                  _pendingLinks.length == 1
+                      ? 'Waiting for 1 request to be approved'
+                      : 'Waiting for ${_pendingLinks.length} requests to be approved',
+                  style: context.text.titleSmall,
+                ),
+              ),
+            ],
+          ),
+          for (final raw in _pendingLinks)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpace.xs),
+              child: Text(
+                (raw as Map)['name']?.toString() ?? 'Pending student',
+                style: context.text.bodySmall,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchToParentPrompt() {
+    final t = context.tokens;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.family_restroom, color: t.primary, size: 48),
+            const SizedBox(height: AppSpace.md),
+            Text(
+              'Your account is registered as ${SecureApiService().role ?? 'student'}.',
+              textAlign: TextAlign.center,
+              style: context.text.titleSmall,
+            ),
+            const SizedBox(height: AppSpace.xs),
+            Text(
+              'Switch to Parent mode to link your child\'s account and see their real progress.',
+              textAlign: TextAlign.center,
+              style: context.text.bodyMedium?.copyWith(color: t.inkMuted),
+            ),
+            const SizedBox(height: AppSpace.lg),
+            NexusButton(
+              label: 'Switch to Parent mode',
+              icon: Icons.family_restroom,
+              isLoading: _switching,
+              onPressed: _switching ? null : _switchToParentMode,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    if (_pendingLinks.isNotEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpace.xl),
+          child: _buildPendingLinksCard(),
+        ),
+      );
+    }
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(AppSpace.xl),
+        child: NexusStateView.empty(
+          title: 'No children linked yet.',
+          description:
+              'Tap "Link child" and enter their account email to see their real progress here.',
+          icon: Icons.person_search,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChildrenList() {
+    final totalXp = _children.fold<int>(
+      0,
+      (sum, child) =>
+          sum + ((child as Map<String, dynamic>)['xp'] as int? ?? 0),
+    );
+    final bestStreak = _children.fold<int>(0, (max, child) {
+      final streak = (child as Map<String, dynamic>)['streak'] as int? ?? 0;
+      return streak > max ? streak : max;
+    });
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.md,
+          AppSpace.md,
+          AppSpace.md,
+          100,
+        ),
+        children: [
+          _buildParentOverview(totalXp: totalXp, bestStreak: bestStreak),
+          const SizedBox(height: AppSpace.md),
+          if (_pendingLinks.isNotEmpty) _buildPendingLinksCard(),
+          if (_children.isNotEmpty) ...[
+            Text('Linked children', style: context.text.titleMedium),
+            const SizedBox(height: AppSpace.sm),
+            for (int index = 0; index < _children.length; index++)
+              _buildChildCard(_children[index] as Map<String, dynamic>),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParentOverview({required int totalXp, required int bestStreak}) {
+    final t = context.tokens;
+    return NexusCard(
+      padding: const EdgeInsets.all(AppSpace.md),
+      background: t.primaryTint,
+      borderColor: t.primaryTintBorder,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Family learning overview', style: context.text.headlineSmall),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            'Track ${_children.length} linked ${_children.length == 1 ? 'child' : 'children'} from one parent account.',
+            style: context.text.bodySmall?.copyWith(color: t.inkMuted),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Row(
+            children: [
+              Expanded(
+                child: NexusStatTile(
+                  icon: Icons.family_restroom,
+                  iconColor: t.primary,
+                  value: '${_children.length}',
+                  label: 'Children',
+                  bordered: false,
+                  centered: true,
+                ),
+              ),
+              Expanded(
+                child: NexusStatTile(
+                  icon: Icons.star,
+                  iconColor: t.secondaryFill,
+                  value: '$totalXp',
+                  label: 'Total XP',
+                  bordered: false,
+                  centered: true,
+                ),
+              ),
+              Expanded(
+                child: NexusStatTile(
+                  icon: Icons.local_fire_department,
+                  iconColor: t.statusLate,
+                  value: '$bestStreak',
+                  label: 'Best streak',
+                  bordered: false,
+                  centered: true,
+                ),
               ),
             ],
           ),
@@ -104,247 +424,431 @@ class ParentDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildWeeklyProgress() {
-    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final hours = [2.5, 1.8, 3.2, 2.1, 1.5, 4.0, 2.8];
-    final maxHour = hours.reduce((a, b) => a > b ? a : b);
+  Widget _buildChildCard(Map<String, dynamic> child) {
+    final t = context.tokens;
+    final weak = (child['weakSubjects'] as List?)?.cast<String>() ?? const [];
+    final strong =
+        (child['strongSubjects'] as List?)?.cast<String>() ?? const [];
+    final xp = child['xp'] as int? ?? 0;
+    final streak = child['streak'] as int? ?? 0;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-      ),
+    return NexusCard(
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+      padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Weekly Study Hours', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 140,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: List.generate(7, (i) {
-                final h = hours[i] / maxHour;
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text('${hours[i]}h', style: TextStyle(fontSize: 10, color: Colors.white.withAlpha(140))),
-                        const SizedBox(height: 4),
-                        Container(
-                          height: 100 * h,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.tealAccent, Colors.teal.withAlpha(100)],
-                            ),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(days[i], style: TextStyle(fontSize: 11, color: Colors.white.withAlpha(160))),
-                      ],
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundImage: child['photoUrl'] != null
+                    ? NetworkImage(child['photoUrl'])
+                    : null,
+                child: child['photoUrl'] == null
+                    ? const Icon(Icons.person)
+                    : null,
+              ),
+              const SizedBox(width: AppSpace.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      child['name'] as String? ?? '',
+                      style: context.text.titleMedium,
+                    ),
+                    Text(
+                      [
+                        if (child['gradeLevel'] != null) child['gradeLevel'],
+                        if (child['schoolBoard'] != null) child['schoolBoard'],
+                      ].join(' • '),
+                      style: context.text.bodySmall?.copyWith(
+                        color: t.inkMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(value: 'unlink', child: Text('Unlink')),
+                ],
+                onSelected: (v) {
+                  if (v == 'unlink') _unlinkChild(child['id'] as String);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.md),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStat(Icons.star, '$xp XP', t.secondaryFill),
+              ),
+              Expanded(
+                child: _buildStat(
+                  Icons.local_fire_department,
+                  '$streak day streak',
+                  t.statusLate,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.sm),
+          if (child['demo'] == true)
+            Row(
+              children: [
+                Icon(Icons.visibility_outlined, color: t.inkMuted, size: 18),
+                const SizedBox(width: AppSpace.xs),
+                Text(
+                  'Demo profile — sample data',
+                  style: context.text.labelMedium?.copyWith(
+                    color: t.inkMuted,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            )
+          else
+            _buildAttendanceRow(child['id'] as String),
+          const SizedBox(height: AppSpace.xs),
+          if (child['demo'] != true)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _openDigest(
+                  child['id'] as String,
+                  child['name'] as String? ?? '',
+                ),
+                icon: const Icon(Icons.calendar_view_day_outlined, size: 18),
+                label: const Text('7-day attendance digest'),
+              ),
+            ),
+          if (strong.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.sm),
+            Text('Strong subjects', style: context.text.labelMedium),
+            const SizedBox(height: AppSpace.xs),
+            Wrap(
+              spacing: AppSpace.xs,
+              runSpacing: AppSpace.xs,
+              children: strong
+                  .map(
+                    (s) => Chip(
+                      label: Text(s),
+                      labelStyle: context.text.labelSmall?.copyWith(
+                        color: t.statusPresent,
+                      ),
+                      backgroundColor: t.statusPresent.withValues(alpha: 0.12),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          if (weak.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.sm),
+            Text('Needs attention', style: context.text.labelMedium),
+            const SizedBox(height: AppSpace.xs),
+            Wrap(
+              spacing: AppSpace.xs,
+              runSpacing: AppSpace.xs,
+              children: weak
+                  .map(
+                    (s) => Chip(
+                      label: Text(s),
+                      labelStyle: context.text.labelSmall?.copyWith(
+                        color: t.statusAbsent,
+                      ),
+                      backgroundColor: t.statusAbsent.withValues(alpha: 0.12),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          if (weak.isEmpty && strong.isEmpty) ...[
+            const SizedBox(height: AppSpace.sm),
+            Text(
+              'No subject data yet — this fills in as your child completes lessons.',
+              style: context.text.bodySmall?.copyWith(
+                color: t.inkMuted,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Real attendance, fetched per child on demand rather than in the initial
+  /// batch load — a parent with several children shouldn't wait on N extra
+  /// round-trips just to see the roster.
+  Widget _buildAttendanceRow(String studentId) {
+    final t = context.tokens;
+    return FutureBuilder<Map<String, dynamic>>(
+      future: SecureApiService().getChildAttendanceHistory(studentId),
+      builder: (ctx, snapshot) {
+        if (!snapshot.hasData || snapshot.data?['summary'] == null) {
+          return Row(
+            children: [
+              Icon(Icons.fact_check_outlined, color: t.inkMuted, size: 18),
+              const SizedBox(width: AppSpace.xs),
+              Text(
+                'Attendance —',
+                style: context.text.labelMedium?.copyWith(color: t.inkMuted),
+              ),
+            ],
+          );
+        }
+        final summary = Map<String, dynamic>.from(
+          snapshot.data!['summary'] as Map,
+        );
+        final pct = summary['percentage'] as int?;
+        final total = summary['total'] as int? ?? 0;
+        if (pct == null || total == 0) {
+          return Row(
+            children: [
+              Icon(Icons.fact_check_outlined, color: t.inkMuted, size: 18),
+              const SizedBox(width: AppSpace.xs),
+              Text(
+                'No attendance recorded yet',
+                style: context.text.labelMedium?.copyWith(color: t.inkMuted),
+              ),
+            ],
+          );
+        }
+        final color = pct < 75 ? t.statusAbsent : t.statusPresent;
+        return Row(
+          children: [
+            Icon(Icons.fact_check_outlined, color: color, size: 18),
+            const SizedBox(width: AppSpace.xs),
+            Text(
+              '$pct% attendance',
+              style: context.text.labelMedium?.copyWith(color: color),
+            ),
+            Text(' · last $total sessions', style: context.text.bodySmall),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Per-day rollup of a child's attendance for the last week — the "what
+  /// happened at school" answer. Loaded on demand, one round-trip, per child.
+  Future<void> _openDigest(String studentId, String childName) async {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) =>
+          _DigestSheet(studentId: studentId, childName: childName),
+    );
+  }
+
+  Widget _buildStat(IconData icon, String label, Color color) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(width: AppSpace.xs),
+        Text(label, style: context.text.labelMedium?.copyWith(color: color)),
+      ],
+    );
+  }
+}
+
+class _DigestSheet extends StatefulWidget {
+  const _DigestSheet({required this.studentId, required this.childName});
+
+  final String studentId;
+  final String childName;
+
+  @override
+  State<_DigestSheet> createState() => _DigestSheetState();
+}
+
+class _DigestSheetState extends State<_DigestSheet> {
+  bool _isLoading = true;
+  Map<String, dynamic>? _child;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final digest = await SecureApiService().getParentDigest(days: 7);
+    if (!mounted) return;
+    final children = (digest['children'] as List?) ?? const <dynamic>[];
+    setState(() {
+      _child = children
+          .cast<Map>()
+          .map((c) => Map<String, dynamic>.from(c))
+          .where((c) => c['studentId'] == widget.studentId)
+          .firstOrNull;
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: AppSpace.lg,
+        right: AppSpace.lg,
+        top: AppSpace.lg,
+        bottom: AppSpace.lg + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${widget.childName} — last 7 days',
+            style: context.text.titleMedium,
+          ),
+          const SizedBox(height: AppSpace.sm),
+          if (_isLoading)
+            const NexusStateView.loading(rows: 3)
+          else if (_child == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpace.md),
+              child: Text(
+                'No attendance sessions in the last 7 days.',
+                style: context.text.bodySmall,
+              ),
+            )
+          else ...[
+            _buildDigestSummary(
+              t,
+              Map<String, dynamic>.from(_child!['summary'] as Map),
+            ),
+            const SizedBox(height: AppSpace.md),
+            if ((_child!['days'] as List? ?? const []).isEmpty)
+              Text(
+                'No sessions recorded this week.',
+                style: context.text.bodySmall,
+              )
+            else
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.55,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: (_child!['days'] as List).length,
+                    itemBuilder: (ctx, i) => _buildDayRow(
+                      t,
+                      Map<String, dynamic>.from(
+                        (_child!['days'] as List)[i] as Map,
+                      ),
                     ),
                   ),
-                );
-              }),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSubjectPerformance() {
-    final subjects = [
-      ('Physics', 0.78, Colors.blueAccent),
-      ('Chemistry', 0.65, Colors.greenAccent),
-      ('Mathematics', 0.82, Colors.purpleAccent),
-      ('Biology', 0.91, Colors.tealAccent),
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Subject Mastery', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 14),
-          for (final (name, progress, color) in subjects)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: Text(name, style: const TextStyle(fontSize: 13))),
-                      Text('${(progress * 100).round()}%', style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 8,
-                    borderRadius: BorderRadius.circular(20),
-                    backgroundColor: color.withAlpha(30),
-                    color: color,
-                  ),
-                ],
+                ),
               ),
-            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildScreenTimeCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-      ),
+  Widget _buildDigestSummary(AppTokens t, Map<String, dynamic> summary) {
+    final pct = summary['percentage'] as int?;
+    final total = summary['total'] as int? ?? 0;
+    final color = pct == null
+        ? t.inkMuted
+        : (pct < 75 ? t.statusAbsent : t.statusPresent);
+    return NexusCard(
+      background: t.primaryTint,
+      borderColor: t.primaryTintBorder,
       child: Row(
         children: [
-          Container(
-            height: 44,
-            width: 44,
-            decoration: BoxDecoration(
-              color: Colors.blueAccent.withAlpha(30),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.screen_lock_portrait, color: Colors.blueAccent, size: 22),
+          Text(
+            pct != null ? '$pct%' : '—',
+            style: context.typeExtras.figureLg.copyWith(color: color),
           ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Today\'s Screen Time', style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(height: 2),
-                Text('2h 15m on Nexus Edu', style: TextStyle(color: Colors.tealAccent, fontSize: 13)),
-              ],
+          const SizedBox(width: AppSpace.sm),
+          Expanded(
+            child: Text(
+              '$total session${total == 1 ? '' : 's'} this week',
+              style: context.text.bodySmall,
             ),
-          ),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('18%', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-              Text('vs yesterday', style: TextStyle(fontSize: 10, color: Colors.grey)),
-            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildWeakSubjectsCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.redAccent.withAlpha(15),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.redAccent.withAlpha(40)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.warning_amber, color: Colors.orangeAccent, size: 20),
-              SizedBox(width: 8),
-              Text('Areas Needing Attention', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildWeakItem('Organic Chemistry', 'Only 45% mastery'),
-          _buildWeakItem('Electromagnetic Waves', 'Low quiz scores'),
-        ],
-      ),
-    );
-  }
+  Widget _buildDayRow(AppTokens t, Map<String, dynamic> day) {
+    final date = day['date'] as String? ?? '';
+    final present = day['present'] as int? ?? 0;
+    final late = day['late'] as int? ?? 0;
+    final absent = day['absent'] as int? ?? 0;
+    final leave = day['leave'] as int? ?? 0;
+    final sessions = (day['sessions'] as List?) ?? const <dynamic>[];
+    final missed = sessions
+        .cast<Map>()
+        .map((s) => Map<String, dynamic>.from(s))
+        .where((s) => s['status'] != 'present')
+        .toList();
 
-  Widget _buildWeakItem(String topic, String detail) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 32,
-            decoration: BoxDecoration(
-              color: Colors.orangeAccent,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(bottom: AppSpace.sm),
+      child: NexusCard(
+        padding: const EdgeInsets.all(AppSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(topic, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                Text(detail, style: TextStyle(color: Colors.white.withAlpha(140), fontSize: 11)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExamReadiness(AppSettings settings) {
-    final examDate = settings.examDate;
-    final daysLeft = examDate != null ? examDate.difference(DateTime.now()).inDays : null;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [Colors.purpleAccent.withAlpha(30), Colors.deepPurple.withAlpha(20)]),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.purpleAccent.withAlpha(50)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            height: 44,
-            width: 44,
-            decoration: BoxDecoration(
-              color: Colors.purpleAccent.withAlpha(30),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.school, color: Colors.purpleAccent, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Exam Readiness', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 2),
+                Expanded(
+                  child: Text(
+                    _formatDate(date),
+                    style: context.typeExtras.bodyStrong,
+                  ),
+                ),
                 Text(
-                  daysLeft != null ? '$daysLeft days to ${settings.examName}' : 'No exam set',
-                  style: TextStyle(color: Colors.white.withAlpha(160), fontSize: 12),
+                  '$present present · $late late · $absent absent · $leave leave',
+                  style: context.text.labelSmall?.copyWith(color: t.inkMuted),
                 ),
               ],
             ),
-          ),
-          Text(
-            daysLeft != null ? '${(daysLeft * 0.6).round()}%' : '--',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.purpleAccent),
-          ),
-        ],
+            if (missed.isNotEmpty) ...[
+              const SizedBox(height: AppSpace.xs),
+              for (final m in missed)
+                Text(
+                  '${m['subject']} (${m['section']}): ${m['status']}',
+                  style: context.text.bodySmall?.copyWith(
+                    color: m['status'] == 'absent'
+                        ? t.statusAbsent
+                        : t.statusLate,
+                  ),
+                ),
+            ],
+          ],
+        ),
       ),
     );
+  }
+
+  String _formatDate(String isoDate) {
+    final parsed = DateTime.tryParse(isoDate);
+    if (parsed == null) return isoDate;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${parsed.day} ${months[parsed.month - 1]}';
   }
 }

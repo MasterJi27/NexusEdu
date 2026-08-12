@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
 class FocusScreen extends StatefulWidget {
   const FocusScreen({super.key});
@@ -79,22 +83,28 @@ class _FocusScreenState extends State<FocusScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
+            NexusTextField(
               controller: workController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Work (minutes)', prefixIcon: Icon(Icons.work)),
+              label: 'Work (minutes)',
+              icon: Icons.work,
             ),
-            const SizedBox(height: 12),
-            TextField(
+            const SizedBox(height: AppSpace.sm),
+            NexusTextField(
               controller: breakController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Break (minutes)', prefixIcon: Icon(Icons.coffee)),
+              label: 'Break (minutes)',
+              icon: Icons.coffee,
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          NexusButton(
+            label: 'Save',
             onPressed: () {
               final w = int.tryParse(workController.text) ?? 25;
               final b = int.tryParse(breakController.text) ?? 5;
@@ -107,7 +117,6 @@ class _FocusScreenState extends State<FocusScreen> {
               });
               Navigator.pop(ctx);
             },
-            child: const Text('Save'),
           ),
         ],
       ),
@@ -133,46 +142,45 @@ class _FocusScreenState extends State<FocusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final accentColor = _isBreak ? Colors.tealAccent : Colors.deepPurpleAccent;
+    final t = context.tokens;
+    final accentColor = _isBreak ? t.statusPresent : t.primary;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Focus Room', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white70),
-            onPressed: _showSettingsDialog,
-          ),
-        ],
-      ),
+    return NexusScreen(
+      title: 'Focus Room',
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.settings_outlined),
+          onPressed: _showSettingsDialog,
+        ),
+      ],
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.lg,
+                  vertical: AppSpace.sm,
+                ),
                 decoration: BoxDecoration(
-                  color: accentColor.withAlpha(20),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: accentColor.withAlpha(50)),
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: AppRadius.brPill,
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.35),
+                  ),
                 ),
                 child: Text(
                   _isBreak ? 'BREAK TIME' : 'WORK SESSION',
-                  style: TextStyle(
+                  style: context.text.labelLarge?.copyWith(
                     color: accentColor,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 2,
-                    fontSize: 14,
                   ),
                 ),
-              ).animate().fade().slideY(begin: -0.1),
-              const SizedBox(height: 40),
+              ),
+              const SizedBox(height: AppSpace.xl),
               Stack(
                 alignment: Alignment.center,
                 children: [
@@ -183,7 +191,7 @@ class _FocusScreenState extends State<FocusScreen> {
                       value: _progress,
                       strokeWidth: 16,
                       color: accentColor,
-                      backgroundColor: Colors.white.withAlpha(20),
+                      backgroundColor: t.surfaceAlt,
                       strokeCap: StrokeCap.round,
                     ),
                   ),
@@ -192,40 +200,45 @@ class _FocusScreenState extends State<FocusScreen> {
                     children: [
                       Text(
                         _timeString,
-                        style: TextStyle(
-                          fontSize: 72,
+                        style: context.typeExtras.figureLg.copyWith(
                           fontWeight: FontWeight.w900,
                           color: accentColor,
                           letterSpacing: 2,
                         ),
                       ),
-                      const Text(
+                      Text(
                         'Remaining',
-                        style: TextStyle(color: Colors.white54, fontSize: 16, letterSpacing: 1.5),
+                        style: context.text.bodyMedium?.copyWith(
+                          color: t.inkMuted,
+                          letterSpacing: 1.5,
+                        ),
                       ),
                     ],
                   ),
                 ],
-              ).animate().fade(delay: 100.ms).scale(begin: const Offset(0.9, 0.9)),
-              const SizedBox(height: 48),
+              ),
+              const SizedBox(height: AppSpace.xl),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   FloatingActionButton(
                     onPressed: _reset,
-                    backgroundColor: Colors.white.withAlpha(20),
+                    backgroundColor: t.surfaceAlt,
                     heroTag: 'reset',
-                    child: const Icon(Icons.replay, color: Colors.white70),
+                    child: Icon(Icons.replay, color: t.inkMuted),
                   ),
-                  const SizedBox(width: 24),
+                  const SizedBox(width: AppSpace.lg),
                   FloatingActionButton.large(
                     onPressed: _toggleTimer,
                     backgroundColor: accentColor,
-                    elevation: 10,
                     heroTag: 'play',
-                    child: Icon(_isRunning ? Icons.pause : Icons.play_arrow, color: Colors.white, size: 48),
+                    child: Icon(
+                      _isRunning ? Icons.pause : Icons.play_arrow,
+                      color: t.onPrimary,
+                      size: 48,
+                    ),
                   ),
-                  const SizedBox(width: 24),
+                  const SizedBox(width: AppSpace.lg),
                   FloatingActionButton(
                     onPressed: () {
                       _timer?.cancel();
@@ -235,31 +248,15 @@ class _FocusScreenState extends State<FocusScreen> {
                         _timeLeft = _workMinutes * 60;
                       });
                     },
-                    backgroundColor: Colors.white.withAlpha(20),
+                    backgroundColor: t.surfaceAlt,
                     heroTag: 'skip',
-                    child: const Icon(Icons.skip_next, color: Colors.white70),
+                    child: Icon(Icons.skip_next, color: t.inkMuted),
                   ),
                 ],
-              ).animate().fade(delay: 200.ms).slideY(begin: 0.2),
-              const SizedBox(height: 48),
-              _buildSessionTracker(),
-              const SizedBox(height: 40),
-              const Text(
-                'Ambient Study Sounds',
-                style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildSoundToggle(Icons.water_drop, 'Rain'),
-                  const SizedBox(width: 32),
-                  _buildSoundToggle(Icons.local_cafe, 'Cafe'),
-                  const SizedBox(width: 32),
-                  _buildSoundToggle(Icons.headphones, 'Lo-Fi'),
-                ],
-              ),
-              const SizedBox(height: 32),
+              const SizedBox(height: AppSpace.xl),
+              _buildSessionTracker(t),
+              const SizedBox(height: AppSpace.xl),
             ],
           ),
         ),
@@ -267,75 +264,114 @@ class _FocusScreenState extends State<FocusScreen> {
     );
   }
 
-  Widget _buildSessionTracker() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(10),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          Column(
-            children: [
-              Text(
-                '$_completedSessions',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.deepPurpleAccent),
-              ),
-              const SizedBox(height: 4),
-              const Text('Sessions', style: TextStyle(color: Colors.white54, fontSize: 12)),
-            ],
-          ),
-          Container(width: 1, height: 40, color: Colors.white.withAlpha(20)),
-          Column(
-            children: [
-              Text(
-                '${_completedSessions * _workMinutes}',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.tealAccent),
-              ),
-              const SizedBox(height: 4),
-              const Text('Minutes', style: TextStyle(color: Colors.white54, fontSize: 12)),
-            ],
-          ),
-          Container(width: 1, height: 40, color: Colors.white.withAlpha(20)),
-          Column(
-            children: [
-              Row(
-                children: List.generate(
-                  _completedSessions.clamp(0, 8),
-                  (i) => Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurpleAccent,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text('Today', style: TextStyle(color: Colors.white54, fontSize: 12)),
-            ],
-          ),
-        ],
-      ),
-    ).animate().fade(delay: 300.ms);
-  }
-
-  Widget _buildSoundToggle(IconData icon, String label) {
+  Widget _buildSessionTracker(AppTokens t) {
+    final goal = AppSettings.instance.dailyMinutesGoal;
+    final done = _completedSessions * _workMinutes;
+    final goalReached = done >= goal;
     return Column(
       children: [
-        CircleAvatar(
-          radius: 36,
-          backgroundColor: Colors.white.withAlpha(20),
-          child: Icon(icon, color: Colors.white.withAlpha(150), size: 32),
+        NexusCard(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpace.lg,
+            vertical: AppSpace.md,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              Column(
+                children: [
+                  Text(
+                    '$_completedSessions',
+                    style: context.typeExtras.figureLg.copyWith(color: t.primary),
+                  ),
+                  const SizedBox(height: AppSpace.xxs),
+                  Text(
+                    'Sessions',
+                    style: context.text.labelSmall?.copyWith(color: t.inkMuted),
+                  ),
+                ],
+              ),
+              Container(width: 1, height: 40, color: t.border),
+              Column(
+                children: [
+                  Text(
+                    '$done',
+                    style: context.typeExtras.figureLg.copyWith(
+                      color: t.statusPresent,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.xxs),
+                  Text(
+                    'Minutes',
+                    style: context.text.labelSmall?.copyWith(color: t.inkMuted),
+                  ),
+                ],
+              ),
+              Container(width: 1, height: 40, color: t.border),
+              Column(
+                children: [
+                  Row(
+                    children: List.generate(
+                      _completedSessions.clamp(0, 8),
+                      (i) => Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: t.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.xxs),
+                  Text(
+                    'Today',
+                    style: context.text.labelSmall?.copyWith(color: t.inkMuted),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
-        Text(label, style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
+        const SizedBox(height: AppSpace.xs),
+        InkWell(
+          onTap: _cycleDailyGoal,
+          borderRadius: AppRadius.brMd,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  goalReached ? Icons.check_circle : Icons.flag_outlined,
+                  size: 16,
+                  color: goalReached ? t.statusPresent : t.inkMuted,
+                ),
+                const SizedBox(width: AppSpace.xxs),
+                Text(
+                  goalReached
+                      ? 'Daily goal of $goal min reached — great job!'
+                      : 'Daily goal: $goal min · $done so far · tap to change',
+                  style: context.text.labelMedium?.copyWith(
+                    color: goalReached ? t.statusPresent : t.inkMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
+
+  void _cycleDailyGoal() {
+    const presets = [15, 30, 45, 60, 90];
+    final current = AppSettings.instance.dailyMinutesGoal;
+    final next = presets[(presets.indexOf(current) + 1) % presets.length];
+    AppSettings.instance.setDailyMinutesGoal(next);
+    setState(() {});
+  }
+
 }

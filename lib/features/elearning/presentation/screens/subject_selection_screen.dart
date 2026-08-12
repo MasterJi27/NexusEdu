@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
 
 class SubjectSelectionScreen extends StatefulWidget {
   const SubjectSelectionScreen({super.key});
@@ -40,96 +42,68 @@ class _SubjectSelectionScreenState extends State<SubjectSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      appBar: AppBar(
-        title: Text(
-          _selectedClass == null
-              ? 'Select Subject'
-              : '$_selectedClass Subjects',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            tooltip: 'Change class',
-            onPressed: () => context.push('/elearning-class'),
-            icon: const Icon(Icons.school_outlined),
-          ),
-        ],
+    final t = context.tokens;
+    final titleText = _selectedClass == null
+        ? 'Select Subject'
+        : '$_selectedClass Subjects';
+    return NexusScreen(
+      title: titleText,
+      titleWidget: Text(
+        titleText,
+        style: context.text.titleMedium?.copyWith(color: t.ink),
       ),
+      actions: [
+        IconButton(
+          tooltip: 'Change class',
+          onPressed: () => context.push('/elearning-class'),
+          icon: const Icon(Icons.school_outlined),
+        ),
+      ],
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _subjects.isEmpty
           ? _buildNoClassState(context)
           : GridView.builder(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(AppSpace.md),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
+                crossAxisSpacing: AppSpace.sm,
+                mainAxisSpacing: AppSpace.sm,
                 childAspectRatio: 0.82,
               ),
               itemCount: _subjects.length,
               itemBuilder: (context, index) {
                 final subject = _subjects[index];
-                return _buildSubjectCard(
-                  subject,
-                ).animate().scale(delay: (index * 70).ms).fade();
+                return _buildSubjectCard(context, subject);
               },
             ),
     );
   }
 
   Widget _buildNoClassState(BuildContext context) {
-    return Center(
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.school_outlined, size: 72, color: Colors.white38),
-            const SizedBox(height: 18),
-            const Text(
-              'Select a class first',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Subjects and topics are loaded from the selected syllabus.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white54),
-            ),
-            const SizedBox(height: 22),
-            FilledButton.icon(
-              onPressed: () => context.push('/elearning-class'),
-              icon: const Icon(Icons.school),
-              label: const Text('Choose Class'),
-            ),
-          ],
+        padding: EdgeInsets.all(AppSpace.lg),
+        child: NexusStateView.empty(
+          title: 'Select a class first',
+          description: 'Subjects and topics are loaded from the selected syllabus.',
+          icon: Icons.school_outlined,
         ),
       ),
     );
   }
 
-  Widget _buildSubjectCard(SubjectSyllabus subject) {
+  Widget _buildSubjectCard(BuildContext context, SubjectSyllabus subject) {
+    final t = context.tokens;
     return InkWell(
       onTap: () => _openSubject(subject.name),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: AppRadius.brLg,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.md),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(13),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: subject.color.withAlpha(70)),
+          color: t.surface,
+          borderRadius: AppRadius.brLg,
+          border: Border.all(color: subject.color.withValues(alpha: 0.35)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,8 +112,8 @@ class _SubjectSelectionScreenState extends State<SubjectSelectionScreen> {
               height: 54,
               width: 54,
               decoration: BoxDecoration(
-                color: subject.color.withAlpha(28),
-                borderRadius: BorderRadius.circular(16),
+                color: subject.color.withValues(alpha: 0.16),
+                borderRadius: AppRadius.brMd,
               ),
               child: Icon(subject.icon, color: subject.color, size: 30),
             ),
@@ -148,26 +122,22 @@ class _SubjectSelectionScreenState extends State<SubjectSelectionScreen> {
               subject.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 19,
-                fontWeight: FontWeight.bold,
-              ),
+              style: context.text.titleMedium,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpace.xs),
             Text(
               '${subject.topics.length} chapters',
-              style: TextStyle(
+              style: context.text.labelMedium?.copyWith(
                 color: subject.color,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: AppSpace.sm),
             Text(
               subject.topics.take(2).join(' • '),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
+              style: context.text.bodySmall?.copyWith(color: t.inkMuted),
             ),
           ],
         ),

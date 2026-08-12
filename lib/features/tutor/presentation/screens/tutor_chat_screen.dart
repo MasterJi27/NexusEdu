@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/features/tutor/presentation/providers/tutor_provider.dart';
 
 class TutorChatScreen extends ConsumerStatefulWidget {
@@ -13,11 +16,21 @@ class TutorChatScreen extends ConsumerStatefulWidget {
 
 class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
   final TextEditingController _controller = TextEditingController();
+  Timer? _xpDismissTimer;
 
   @override
   void dispose() {
+    _xpDismissTimer?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _scheduleXpDismiss() {
+    _xpDismissTimer?.cancel();
+    _xpDismissTimer = Timer(const Duration(milliseconds: 2000), () {
+      _xpDismissTimer = null;
+      if (mounted) ref.read(tutorProvider.notifier).hideXpPopup();
+    });
   }
 
   void _sendMessage() {
@@ -31,40 +44,51 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
   Widget build(BuildContext context) {
     final tutorState = ref.watch(tutorProvider);
     final notifier = ref.read(tutorProvider.notifier);
+    final t = context.tokens;
+
+    ref.listen(tutorProvider, (previous, next) {
+      if (next.showXpPopup && (previous?.showXpPopup ?? false) == false) {
+        _scheduleXpDismiss();
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
             CircleAvatar(
-              backgroundColor: Colors.deepPurple,
+              backgroundColor: t.primary,
               radius: 16,
               child: Icon(
                 Icons.record_voice_over,
-                color: Colors.white,
+                color: t.onPrimary,
                 size: 18,
               ),
             ),
-            SizedBox(width: 12),
-            Text(
-              'Nexus AI Tutor',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            const SizedBox(width: AppSpace.sm),
+            Text('Nexus AI Tutor', style: context.text.titleMedium),
           ],
         ),
         actions: [
           Row(
             children: [
-              const Text(
-                'Debate',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              Text('Voice', style: context.text.labelSmall),
+              Switch(
+                value: tutorState.isVoiceConversation,
+                onChanged: (val) => notifier.toggleVoiceConversation(val),
+                activeThumbColor: t.primary,
               ),
+            ],
+          ),
+          Row(
+            children: [
+              Text('Debate', style: context.text.labelSmall),
               Switch(
                 value: tutorState.isDebateMode,
                 onChanged: (val) {
                   notifier.toggleDebateMode(val);
                 },
-                activeThumbColor: Colors.redAccent,
+                activeThumbColor: t.secondary,
               ),
             ],
           ),
@@ -82,7 +106,12 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
               Expanded(
                 child: ListView.builder(
                   reverse: true,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpace.md,
+                    AppSpace.sm,
+                    AppSpace.md,
+                    AppSpace.xs,
+                  ),
                   itemCount:
                       tutorState.messages.length +
                       (tutorState.isTyping ? 1 : 0),
@@ -97,6 +126,7 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
                     return _buildMessageBubble(
                       msg.text,
                       msg.isBot,
+                      msg.timestamp,
                       tutorState.isDebateMode,
                     );
                   },
@@ -108,167 +138,290 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
           ),
           if (tutorState.showXpPopup)
             Center(
-              child:
-                  Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 48,
-                          vertical: 24,
-                        ),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Colors.amber, Colors.orange],
-                          ),
-                          borderRadius: BorderRadius.circular(32),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.amber.withAlpha(150),
-                              blurRadius: 30,
-                              spreadRadius: 10,
-                            ),
-                          ],
-                        ),
-                        child: const Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.emoji_events,
-                              size: 80,
-                              color: Colors.white,
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              '+500 XP\nDEBATE WON!',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                      .animate()
-                      .scale(duration: 600.ms, curve: Curves.elasticOut)
-                      .shimmer(duration: 1.seconds, color: Colors.white)
-                      .then(delay: 1.5.seconds)
-                      .fadeOut(duration: 500.ms)
-                      .scale(
-                        begin: const Offset(1, 1),
-                        end: const Offset(0.5, 0.5),
-                      )
-                      .callback(callback: (_) => notifier.hideXpPopup()),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.xl,
+                  vertical: AppSpace.lg,
+                ),
+                decoration: BoxDecoration(
+                  color: t.secondaryFill,
+                  borderRadius: AppRadius.brLg,
+                  boxShadow: AppElevation.e2(t.shadow),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.emoji_events,
+                      size: 80,
+                      color: t.secondary,
+                    ),
+                    const SizedBox(height: AppSpace.sm),
+                    Text(
+                      '+500 XP\nDEBATE WON!',
+                      textAlign: TextAlign.center,
+                      style: context.text.displaySmall?.copyWith(
+                        color: t.secondary,
+                        height: 1.2,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildMessageBubble(String text, bool isBot, bool isDebateMode) {
-    return Align(
-      alignment: isBot ? Alignment.centerLeft : Alignment.centerRight,
-      child:
-          Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.78,
-            ),
-            margin: EdgeInsets.only(
-              bottom: 12,
-              right: isBot ? 48 : 0,
-              left: isBot ? 0 : 48,
-            ),
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: isBot
-                  ? Theme.of(context).colorScheme.surfaceContainerHighest
-                  : (isDebateMode
-                        ? Colors.redAccent
-                        : Theme.of(context).colorScheme.primary),
-              borderRadius: BorderRadius.circular(20).copyWith(
-                bottomLeft: isBot
-                    ? const Radius.circular(0)
-                    : const Radius.circular(20),
-                bottomRight: !isBot
-                    ? const Radius.circular(0)
-                    : const Radius.circular(20),
+  Widget _buildMessageBubble(
+    String text,
+    bool isBot,
+    DateTime? timestamp,
+    bool isDebateMode,
+  ) {
+    final t = context.tokens;
+    final timeLabel = timestamp == null
+        ? null
+        : Text(
+            _formatTime(timestamp),
+            style: context.text.labelSmall?.copyWith(color: t.inkFaint),
+          );
+
+    if (!isBot) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
               ),
-              boxShadow: [
-                if (!isBot && isDebateMode)
-                  BoxShadow(
-                    color: Colors.redAccent.withAlpha(100),
-                    blurRadius: 10,
-                    spreadRadius: 2,
+              margin: const EdgeInsets.only(bottom: AppSpace.xxs),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpace.md,
+                vertical: AppSpace.sm,
+              ),
+              decoration: BoxDecoration(
+                color: isDebateMode ? t.secondaryFill : t.primary,
+                borderRadius: AppRadius.brLg.copyWith(
+                  bottomRight: const Radius.circular(AppRadius.sm),
+                ),
+              ),
+              child: Text(
+                text,
+                style: context.text.bodyLarge?.copyWith(
+                  color: isDebateMode ? t.secondary : t.onPrimary,
+                  height: 1.35,
+                ),
+              ),
+            ),
+            ?timeLabel,
+          ],
+        ),
+      );
+    }
+
+    // Bot messages are structured Markdown (headings, bullets, LaTeX-style
+    // math blocks) — render them as a proper document, not a text wall.
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: t.primaryTint,
+            child: Icon(
+              Icons.smart_toy_outlined,
+              size: 18,
+              color: t.primary,
+            ),
+          ),
+          const SizedBox(width: AppSpace.xs),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Nexus AI',
+                      style: context.text.labelSmall?.copyWith(
+                        color: t.inkMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpace.xxs),
+                    ?timeLabel,
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.all(AppSpace.md),
+                  decoration: BoxDecoration(
+                    color: t.surfaceAlt,
+                    borderRadius: AppRadius.brLg.copyWith(
+                      bottomLeft: const Radius.circular(AppRadius.sm),
+                    ),
+                    border: Border.all(color: t.border),
                   ),
+                  child: MarkdownBody(
+                    data: text.isEmpty ? '…' : text,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet.fromTheme(
+                      Theme.of(context),
+                    ).copyWith(
+                      p: context.text.bodyMedium?.copyWith(height: 1.45),
+                      h1: context.text.headlineSmall,
+                      h2: context.text.titleLarge,
+                      h3: context.text.titleMedium,
+                      listBullet: context.text.bodyMedium?.copyWith(
+                        color: t.primary,
+                      ),
+                      strong: context.text.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      code: context.text.bodyMedium?.copyWith(
+                        fontFamily: 'monospace',
+                        backgroundColor: t.surfaceAlt,
+                        color: t.ink,
+                      ),
+                      codeblockDecoration: BoxDecoration(
+                        color: t.surface,
+                        borderRadius: AppRadius.brMd,
+                        border: Border.all(color: t.border),
+                      ),
+                      blockquoteDecoration: BoxDecoration(
+                        color: t.primaryTint,
+                        borderRadius: AppRadius.brSm,
+                        border: Border(left: BorderSide(color: t.primary)),
+                      ),
+                      blockquote: context.text.bodyMedium?.copyWith(
+                        color: t.inkMuted,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      horizontalRuleDecoration: BoxDecoration(
+                        border: Border(top: BorderSide(color: t.border)),
+                      ),
+                      tableHead: context.text.labelMedium?.copyWith(
+                        color: t.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpace.xs),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _bubbleAction(
+                      icon: Icons.copy_outlined,
+                      tooltip: 'Copy',
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: text));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Reply copied.')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ],
             ),
-            child: Text(
-              text,
-              style: TextStyle(
-                color: isBot
-                    ? Theme.of(context).colorScheme.onSurface
-                    : Colors.white,
-                fontSize: 16,
-              ),
-            ),
-          ).animate().fade().scale(
-            alignment: isBot ? Alignment.bottomLeft : Alignment.bottomRight,
           ),
+        ],
+      ),
     );
   }
 
+  Widget _bubbleAction({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    final t = context.tokens;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: AppRadius.brSm,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Icon(icon, size: 14, color: t.inkFaint),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime ts) {
+    final hh = ts.hour.toString().padLeft(2, '0');
+    final mm = ts.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
   Widget _buildTypingBubble() {
+    final t = context.tokens;
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12, right: 80),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(
-            18,
-          ).copyWith(bottomLeft: const Radius.circular(0)),
-          boxShadow: [
-            BoxShadow(
-              color: Theme.of(context).colorScheme.primary.withAlpha(40),
-              blurRadius: 10,
-              spreadRadius: 1,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: t.primaryTint,
+            child: Icon(
+              Icons.smart_toy_outlined,
+              size: 18,
+              color: t.primary,
             ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.deepPurpleAccent,
+          ),
+          const SizedBox(width: AppSpace.xs),
+          Container(
+            margin: const EdgeInsets.only(bottom: AppSpace.sm),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpace.md,
+              vertical: AppSpace.sm,
+            ),
+            decoration: BoxDecoration(
+              color: t.surfaceAlt,
+              borderRadius: AppRadius.brLg.copyWith(
+                bottomLeft: const Radius.circular(AppRadius.sm),
               ),
-            ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1.seconds),
-            const SizedBox(width: 12),
-            const Text(
-              'Nexus is thinking...',
-              style: TextStyle(fontWeight: FontWeight.w500),
             ),
-          ],
-        ),
-      ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(
-        begin: const Offset(1, 1),
-        end: const Offset(1.02, 1.02),
-        duration: 1.seconds,
-        curve: Curves.easeInOut,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: AppSpace.sm),
+                Text(
+                  'Nexus is thinking...',
+                  style: context.text.bodyMedium?.copyWith(color: t.ink),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildTutorTools(String? selectedClass) {
+    final t = context.tokens;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.md,
+        AppSpace.xs,
+        AppSpace.md,
+        10,
+      ),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: Colors.black.withAlpha(8))),
+        color: t.surface,
+        border: Border(top: BorderSide(color: t.border)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -325,7 +478,7 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
     VoidCallback? onTap,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.only(right: AppSpace.xs),
       child: ActionChip(
         avatar: Icon(icon, size: 16),
         label: Text(label),
@@ -341,23 +494,22 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
   }
 
   Widget _buildInputField(TutorState tutorState, TutorNotifier notifier) {
+    final t = context.tokens;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.sm),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(10),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
-        ],
+        color: t.surface,
+        boxShadow: AppElevation.e1(t.shadow),
       ),
       child: SafeArea(
         child: Row(
           children: [
             GestureDetector(
               onTap: () {
+                if (tutorState.isVoiceConversation) {
+                  notifier.toggleVoiceConversation(false);
+                  return;
+                }
                 notifier.listen((text) {
                   _controller.text = text;
                 });
@@ -367,39 +519,68 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
               },
               child: CircleAvatar(
                 backgroundColor: tutorState.isListening
-                    ? Colors.redAccent
-                    : Colors.deepPurpleAccent.withAlpha(50),
+                    ? t.statusAbsent
+                    : t.primaryTint,
                 child: Icon(
                   tutorState.isListening ? Icons.mic : Icons.mic_none,
                   color: tutorState.isListening
-                      ? Colors.white
-                      : Colors.deepPurpleAccent,
+                      ? t.onPrimary
+                      : t.primary,
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppSpace.sm),
             Expanded(
-              child: TextField(
-                controller: _controller,
-                decoration: InputDecoration(
-                  hintText: tutorState.isListening
-                      ? 'Listening...'
-                      : 'Type or speak...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(
-                    context,
-                  ).colorScheme.surfaceContainerHighest.withAlpha(150),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                ),
-                onSubmitted: (_) => _sendMessage(),
-              ),
+              child: tutorState.isVoiceConversation
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpace.lg,
+                        vertical: AppSpace.sm,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            tutorState.isListening
+                                ? Icons.graphic_eq
+                                : Icons.volume_up_outlined,
+                            size: 18,
+                            color: t.primary,
+                          ),
+                          const SizedBox(width: AppSpace.sm),
+                          Expanded(
+                            child: Text(
+                              tutorState.isListening
+                                  ? 'Listening... speak now (tap mic to stop)'
+                                  : 'Speaking...',
+                              style: context.text.bodyMedium?.copyWith(
+                                color: t.inkMuted,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : TextField(
+                      controller: _controller,
+                      decoration: InputDecoration(
+                        hintText: tutorState.isListening
+                            ? 'Listening...'
+                            : 'Type or speak...',
+                        border: OutlineInputBorder(
+                          borderRadius: AppRadius.brPill,
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: t.surfaceAlt.withValues(alpha: 0.9),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: AppSpace.lg,
+                          vertical: AppSpace.sm,
+                        ),
+                      ),
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
             ),
           ],
         ),

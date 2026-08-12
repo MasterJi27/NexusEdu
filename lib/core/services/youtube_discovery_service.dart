@@ -1,5 +1,7 @@
-import 'package:dio/dio.dart';
+import 'dart:convert';
+
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,18 +9,12 @@ class YoutubeDiscoveryService {
   static const String _apiKeyPrefsKey = 'youtube_api_key';
   static String? _apiKey;
 
-  static final Dio _dio = Dio(
-    BaseOptions(
-      baseUrl: 'https://www.googleapis.com/youtube/v3',
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 8),
-    ),
-  );
+  static const String _baseUrl = 'https://www.googleapis.com/youtube/v3';
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _apiKey = (prefs.getString(_apiKeyPrefsKey) ?? dotenv.env['YOUTUBE_API_KEY'])
-        ?.trim();
+    final bundledKey = dotenv.isInitialized ? dotenv.env['YOUTUBE_API_KEY'] : null;
+    _apiKey = (prefs.getString(_apiKeyPrefsKey) ?? bundledKey)?.trim();
   }
 
   static Future<void> saveApiKey(String key) async {
@@ -54,21 +50,23 @@ class YoutubeDiscoveryService {
     final scopedQuery = queryParts.join(' ');
 
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/search',
-        queryParameters: {
-          'part': 'snippet',
-          'type': 'video',
-          'videoDuration': 'short',
-          'videoEmbeddable': 'true',
-          'safeSearch': 'strict',
-          'maxResults': 8,
-          'q': scopedQuery,
-          'key': key,
-        },
-      );
+      final uri = Uri.parse('$_baseUrl/search').replace(queryParameters: {
+        'part': 'snippet',
+        'type': 'video',
+        'videoDuration': 'short',
+        'videoEmbeddable': 'true',
+        'safeSearch': 'strict',
+        'maxResults': 8,
+        'q': scopedQuery,
+        'key': key,
+      });
+      final response = await http
+          .get(uri)
+          .timeout(const Duration(seconds: 8));
 
-      final items = response.data?['items'];
+      if (response.statusCode != 200) return const [];
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = data['items'];
       if (items is! List) return const [];
 
       return items

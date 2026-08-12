@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexus_edu/core/services/ai_agent_service.dart';
+import 'package:nexus_edu/core/services/azure_ai_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
 
 class MultiLangTutorScreen extends StatefulWidget {
   const MultiLangTutorScreen({super.key});
@@ -36,6 +37,13 @@ class _MultiLangTutorScreenState extends State<MultiLangTutorScreen> {
     if (_messages.isEmpty) {
       _messages.add({'role': 'ai', 'text': 'Welcome! I can explain concepts in any language. Which language would you prefer?'});
     }
+  }
+
+  @override
+  void dispose() {
+    _inputController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadChats() async {
@@ -78,11 +86,31 @@ class _MultiLangTutorScreenState extends State<MultiLangTutorScreen> {
     _inputController.clear();
     _scrollToBottom();
 
-    final prompt = 'You are a multilingual tutor. Respond entirely in $_selectedLanguage ($_selectedCode). '
-        'If $_selectedLanguage is not English, use the native script as well. '
-        'Be educational and clear. Student asks: $text';
+    // Pipeline: user text -> English (Azure Translator) -> AI answers in
+    // English -> answer translated back to the selected language. This beats
+    // prompting the model to answer in the target language (which drifts into
+    // Hinglish). Falls back to the old behavior when translation fails.
+    var englishPrompt = text;
+    if (_selectedCode != 'en') {
+      englishPrompt = await AzureAiService.translate(text, to: 'en', from: _selectedCode);
+    }
 
-    final response = await AiAgentService.callAgent('custom', {'prompt': prompt});
+    final prompt = 'You are a multilingual tutor for Indian students. '
+        'Respond entirely in English. Be educational, clear and concise. '
+        'Student asks: $englishPrompt';
+
+    String response;
+    try {
+      response = await AiAgentService.callAgent('custom', {'prompt': prompt});
+      if (_selectedCode != 'en') {
+        final translated = await AzureAiService.translate(response, to: _selectedCode, from: 'en');
+        if (translated.trim().isNotEmpty && translated.trim() != response.trim()) {
+          response = translated;
+        }
+      }
+    } catch (_) {
+      response = "Sorry, I couldn't reach the server. Check your connection and try again.";
+    }
 
     if (!mounted) return;
 
@@ -120,22 +148,26 @@ class _MultiLangTutorScreenState extends State<MultiLangTutorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
       appBar: AppBar(
-        title: const Text('Multi-Language Tutor', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        title: const Text('Multi-Language Tutor'),
         actions: [
           Container(
-            margin: const EdgeInsets.only(right: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            margin: const EdgeInsets.only(right: AppSpace.sm),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.deepPurpleAccent.withAlpha(40),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.deepPurpleAccent.withAlpha(80)),
+              color: t.primaryTint,
+              borderRadius: AppRadius.brPill,
+              border: Border.all(color: t.primaryTintBorder),
             ),
-            child: Text(_selectedLanguage, style: const TextStyle(color: Colors.deepPurpleAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+            child: Text(
+              _selectedLanguage,
+              style: context.text.labelSmall?.copyWith(
+                color: t.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -150,46 +182,48 @@ class _MultiLangTutorScreenState extends State<MultiLangTutorScreen> {
   }
 
   Widget _buildLanguageBar() {
-    return Container(
+    final t = context.tokens;
+    return SizedBox(
       height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm),
         itemCount: _languages.length,
         itemBuilder: (context, index) {
           final lang = _languages[index];
           final isSelected = lang['code'] == _selectedCode;
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.xxs, vertical: 6),
             child: GestureDetector(
               onTap: () => _switchLanguage(lang['name']!, lang['code']!),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 5),
                 decoration: BoxDecoration(
-                  color: isSelected ? Colors.deepPurpleAccent.withAlpha(50) : const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(18),
+                  color: isSelected ? t.primaryTint : t.surface,
+                  borderRadius: AppRadius.brPill,
                   border: Border.all(
-                    color: isSelected ? Colors.deepPurpleAccent : Colors.white.withAlpha(15),
+                    color: isSelected ? t.primaryTintBorder : t.border,
                   ),
                 ),
-                child: Text(lang['name']!,
-                    style: TextStyle(
-                      color: isSelected ? Colors.deepPurpleAccent : Colors.white.withAlpha(150),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    )),
+                child: Text(
+                  lang['name']!,
+                  style: context.text.labelSmall?.copyWith(
+                    color: isSelected ? t.primary : t.inkMuted,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ),
           );
         },
       ),
-    ).animate().fade();
+    );
   }
 
   Widget _buildChatView() {
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.xs),
       itemCount: _messages.length + (_isLoading ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == _messages.length) return _buildTypingIndicator();
@@ -202,98 +236,108 @@ class _MultiLangTutorScreenState extends State<MultiLangTutorScreen> {
   }
 
   Widget _buildSystemMessage(String text) {
+    final t = context.tokens;
     return Align(
       alignment: Alignment.center,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.deepPurpleAccent.withAlpha(30),
-          borderRadius: BorderRadius.circular(20),
+          color: t.primaryTint,
+          borderRadius: AppRadius.brPill,
         ),
-        child: Text(text, style: const TextStyle(color: Colors.deepPurpleAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+        child: Text(
+          text,
+          style: context.text.labelSmall?.copyWith(
+            color: t.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
-    ).animate().fade();
+    );
   }
 
   Widget _buildChatBubble(String text, bool isUser) {
+    final t = context.tokens;
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(bottom: AppSpace.sm),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.sm),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
-          color: isUser ? Colors.deepPurpleAccent.withAlpha(40) : const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16), topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isUser ? 16 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 16),
+          color: isUser ? t.primaryTint : t.surface,
+          borderRadius: AppRadius.brMd,
+          border: Border.all(
+            color: isUser ? t.primaryTintBorder : t.border,
           ),
-          border: Border.all(color: isUser ? Colors.deepPurpleAccent.withAlpha(40) : Colors.white.withAlpha(15)),
         ),
-        child: SelectableText(text, style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 14, height: 1.5)),
+        child: SelectableText(text, style: context.text.bodyMedium),
       ),
-    ).animate().fade().slideY(begin: isUser ? 0.1 : -0.1);
+    );
   }
 
   Widget _buildTypingIndicator() {
+    final t = context.tokens;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(bottom: AppSpace.sm),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.sm),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withAlpha(15)),
+          color: t.surface,
+          borderRadius: AppRadius.brMd,
+          border: Border.all(color: t.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: List.generate(3, (i) => Container(
             margin: const EdgeInsets.symmetric(horizontal: 3),
-            width: 8, height: 8,
-            decoration: const BoxDecoration(color: Colors.deepPurpleAccent, shape: BoxShape.circle),
-          ).animate(onPlay: (c) => c.repeat()).fadeIn(delay: Duration(milliseconds: i * 200)).then(delay: const Duration(milliseconds: 200)).fadeOut()),
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: t.primary.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
+          )),
         ),
       ),
     );
   }
 
   Widget _buildInputArea() {
+    final t = context.tokens;
     return Container(
-      padding: const EdgeInsets.all(12),
-      color: const Color(0xFF1E1E1E),
+      padding: const EdgeInsets.all(AppSpace.sm),
+      color: t.surface,
       child: SafeArea(
+        top: false,
         child: Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _inputController,
-                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   hintText: 'Ask in $_selectedLanguage...',
-                  hintStyle: TextStyle(color: Colors.white.withAlpha(80)),
-                  filled: true,
-                  fillColor: const Color(0xFF0F0F13),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Colors.deepPurpleAccent)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
                 onSubmitted: (_) => _sendMessage(),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: AppSpace.sm),
             Container(
               decoration: BoxDecoration(
-                color: Colors.deepPurpleAccent.withAlpha(40),
-                borderRadius: BorderRadius.circular(12),
+                color: t.primaryTint,
+                borderRadius: AppRadius.brMd,
               ),
               child: IconButton(
                 onPressed: _isLoading ? null : _sendMessage,
                 icon: _isLoading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent))
-                    : const Icon(Icons.send, color: Colors.deepPurpleAccent),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send),
               ),
             ),
           ],

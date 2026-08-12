@@ -9,7 +9,14 @@ class ChatMessage {
   final bool isBot;
   final String text;
 
-  const ChatMessage({required this.isBot, required this.text});
+  /// When the message was created. Null for seeded demo messages.
+  final DateTime? timestamp;
+
+  const ChatMessage({
+    required this.isBot,
+    required this.text,
+    this.timestamp,
+  });
 }
 
 class TutorState {
@@ -17,6 +24,7 @@ class TutorState {
   final bool isDebateMode;
   final bool isTyping;
   final bool isListening;
+  final bool isVoiceConversation;
   final bool showXpPopup;
   final String? selectedClass;
 
@@ -25,6 +33,7 @@ class TutorState {
     this.isDebateMode = false,
     this.isTyping = false,
     this.isListening = false,
+    this.isVoiceConversation = false,
     this.showXpPopup = false,
     this.selectedClass,
   });
@@ -34,6 +43,7 @@ class TutorState {
     bool? isDebateMode,
     bool? isTyping,
     bool? isListening,
+    bool? isVoiceConversation,
     bool? showXpPopup,
     String? selectedClass,
   }) {
@@ -42,6 +52,7 @@ class TutorState {
       isDebateMode: isDebateMode ?? this.isDebateMode,
       isTyping: isTyping ?? this.isTyping,
       isListening: isListening ?? this.isListening,
+      isVoiceConversation: isVoiceConversation ?? this.isVoiceConversation,
       showXpPopup: showXpPopup ?? this.showXpPopup,
       selectedClass: selectedClass ?? this.selectedClass,
     );
@@ -96,18 +107,50 @@ class TutorNotifier extends Notifier<TutorState> {
   }
 
   Future<void> stopAudio() async {
-    await _flutterTts.stop();
+    try {
+      await _flutterTts.stop();
+    } catch (e) {
+      debugPrint('TTS stop error: $e');
+    }
+    if (state.isVoiceConversation) {
+      toggleVoiceConversation(false);
+    }
   }
 
-  Future<void> listen(void Function(String) onResult) async {
+  /// Hands-free conversation: speak → auto-send → hear the reply → listen
+  /// again, until the user turns the mode off. Built on the same STT/TTS
+  /// primitives as the tap-to-talk button, no extra services.
+  Future<void> toggleVoiceConversation(bool on) async {
+    state = state.copyWith(isVoiceConversation: on, isListening: false);
+    try {
+      await _flutterTts.stop();
+      await _speechToText.stop();
+    } catch (e) {
+      debugPrint('Voice stop error: $e');
+    }
+    if (on) {
+      await listen((_) {}, autoSend: true);
+    }
+  }
+
+  Future<void> listen(void Function(String) onResult, {bool autoSend = false}) async {
     if (!state.isListening) {
       try {
         bool available = await _speechToText.initialize();
         if (available) {
           state = state.copyWith(isListening: true);
           _speechToText.listen(
+            listenOptions: stt.SpeechListenOptions(
+              listenFor: const Duration(minutes: 2),
+            ),
             onResult: (val) {
-              onResult(val.recognizedWords);
+              final text = val.recognizedWords.trim();
+              if (text.isNotEmpty) onResult(text);
+              if (autoSend && val.finalResult && text.isNotEmpty) {
+                _speechToText.stop();
+                state = state.copyWith(isListening: false);
+                sendMessage(text);
+              }
             },
           );
         }
@@ -128,13 +171,19 @@ class TutorNotifier extends Notifier<TutorState> {
     if (text.isEmpty) return;
 
     var newMessages = List<ChatMessage>.from(state.messages);
-    newMessages.insert(0, ChatMessage(isBot: false, text: text));
+    newMessages.insert(
+      0,
+      ChatMessage(isBot: false, text: text, timestamp: DateTime.now()),
+    );
 
     state = state.copyWith(messages: newMessages, isTyping: true);
 
     String fullReply = "";
     var updatedMessages = List<ChatMessage>.from(state.messages);
-    updatedMessages.insert(0, const ChatMessage(isBot: true, text: ""));
+    updatedMessages.insert(
+      0,
+      ChatMessage(isBot: true, text: "", timestamp: DateTime.now()),
+    );
     state = state.copyWith(messages: updatedMessages);
 
     try {
@@ -143,13 +192,21 @@ class TutorNotifier extends Notifier<TutorState> {
       await for (final chunk in responseStream) {
         fullReply += chunk;
         var streamingMessages = List<ChatMessage>.from(state.messages);
-        streamingMessages[0] = ChatMessage(isBot: true, text: fullReply);
+        streamingMessages[0] = ChatMessage(
+          isBot: true,
+          text: fullReply,
+          timestamp: streamingMessages[0].timestamp,
+        );
         state = state.copyWith(messages: streamingMessages, isTyping: false);
       }
     } catch (e) {
       fullReply = 'Sorry, I encountered an error. Please try again.';
       var errorMessages = List<ChatMessage>.from(state.messages);
-      errorMessages[0] = ChatMessage(isBot: true, text: fullReply);
+      errorMessages[0] = ChatMessage(
+        isBot: true,
+        text: fullReply,
+        timestamp: errorMessages[0].timestamp,
+      );
       state = state.copyWith(isTyping: false, messages: errorMessages);
     }
 
@@ -162,7 +219,11 @@ class TutorNotifier extends Notifier<TutorState> {
     );
 
     try {
+      await _flutterTts.awaitSpeakCompletion(true);
       await _flutterTts.speak(fullReply);
+      if (state.isVoiceConversation) {
+        await listen((_) {}, autoSend: true);
+      }
     } catch (e) {
       debugPrint('TTS error: $e');
     }

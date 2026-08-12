@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexus_edu/core/services/secure_api_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -11,148 +16,144 @@ class ForgotPasswordScreen extends StatefulWidget {
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _emailController = TextEditingController();
-  final _newPasswordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
-  bool _emailSent = false;
   String? _error;
 
   @override
   void dispose() {
     _emailController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _resetPassword() async {
-    setState(() { _isLoading = true; _error = null; });
+  Future<void> _sendResetLink() async {
     final email = _emailController.text.trim();
-    final newPassword = _newPasswordController.text.trim();
-    final confirm = _confirmPasswordController.text.trim();
-
     if (email.isEmpty) {
-      setState(() { _isLoading = false; _error = 'Please enter your email'; });
+      setState(() => _error = 'Enter your email to continue.');
       return;
     }
 
-    if (!_emailSent) {
-      await Future.delayed(const Duration(seconds: 1));
-      setState(() { _isLoading = false; _emailSent = true; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    final result = await SecureApiService().forgotPassword(email);
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    if (result['error'] != null) {
+      setState(() => _error = result['error'].toString());
       return;
     }
 
-    if (newPassword.isEmpty || confirm.isEmpty) {
-      setState(() { _isLoading = false; _error = 'Please fill all fields'; });
-      return;
-    }
-    if (newPassword != confirm) {
-      setState(() { _isLoading = false; _error = 'Passwords do not match'; });
-      return;
-    }
-    if (newPassword.length < 6) {
-      setState(() { _isLoading = false; _error = 'Password must be at least 6 characters'; });
-      return;
-    }
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    final prefs = await SharedPreferences.getInstance();
-    final savedEmail = prefs.getString('user_email');
-
-    if (savedEmail == email) {
-      await prefs.setString('user_password', newPassword);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password reset successful!'), backgroundColor: Colors.green),
-        );
-        context.pop();
-      }
+    final devToken = result['devToken']?.toString();
+    if (devToken != null && devToken.isNotEmpty) {
+      // Dev mode: the backend can't email, so show the token so the flow can
+      // be completed end-to-end. Production hides this entirely.
+      await _showDevToken(devToken);
     } else {
-      setState(() { _isLoading = false; _error = 'Email not found. Please sign up first.'; });
+      _showConfirmation();
     }
+  }
+
+  Future<void> _showDevToken(String token) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset link generated (dev mode)'),
+        content: Text(
+          'No email service is configured, so here is your reset token.\n\n$token\n\n'
+          'Use it on the next screen to set a new password.',
+          style: dialogContext.text.bodySmall,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => dialogContext.pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              dialogContext.pop();
+              context.go('/reset-password?token=$token');
+            },
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _error = null);
+  }
+
+  void _showConfirmation() {
+    setState(() => _error = null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'If an account exists, a reset link has been sent to your email.',
+        ),
+      ),
+    );
+    context.pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
-      body: SafeArea(
+    final t = context.tokens;
+    return NexusScreen(
+      title: 'Forgot password',
+      body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 40),
-              IconButton(
-                onPressed: () => context.pop(),
-                icon: const Icon(Icons.arrow_back_ios, color: Colors.white54),
-                alignment: Alignment.centerLeft,
-              ),
-              const SizedBox(height: 20),
-              Icon(Icons.lock_reset, color: const Color(0xFF7C5CFF), size: 64),
-              const SizedBox(height: 24),
-              const Text('Reset Password', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              Text(
-                _emailSent ? 'Enter your new password' : 'Enter your email to reset password',
-                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
-              ),
-              const SizedBox(height: 40),
-              if (!_emailSent) ...[
-                _buildTextField(_emailController, 'Email', Icons.email_outlined),
-              ] else ...[
-                _buildTextField(_newPasswordController, 'New Password', Icons.lock_outlined, isPassword: true),
-                const SizedBox(height: 16),
-                _buildTextField(_confirmPasswordController, 'Confirm Password', Icons.lock_outlined, isPassword: true),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
-              ],
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _resetPassword,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF7C5CFF),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    elevation: 0,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(
-                          _emailSent ? 'Reset Password' : 'Send Reset Link',
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
+          padding: AppSpace.pageH,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: AppSpace.xxl),
+                Text(
+                  'Nexus Edu',
+                  style: context.text.displaySmall?.copyWith(color: t.ink),
                 ),
-              ),
-            ],
+                const SizedBox(height: AppSpace.xxs),
+                Text(
+                  'We\'ll email you a link to reset your password.',
+                  style: context.text.bodyMedium?.copyWith(color: t.inkMuted),
+                ),
+                const SizedBox(height: AppSpace.xl),
+                NexusTextField(
+                  controller: _emailController,
+                  label: 'Email',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _sendResetLink(),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: AppSpace.xs),
+                  NexusBanner(message: _error!, kind: NexusBannerKind.error),
+                ],
+                const SizedBox(height: AppSpace.md),
+                NexusButton(
+                  label: 'Send reset link',
+                  isLoading: _isLoading,
+                  onPressed: _isLoading ? null : _sendResetLink,
+                  fullWidth: true,
+                ),
+                const SizedBox(height: AppSpace.sm),
+                Center(
+                  child: TextButton(
+                    onPressed: () => context.go('/reset-password'),
+                    child: const Text(
+                      'Already have a reset link? Enter it here',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpace.xxl),
+              ],
+            ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {bool isPassword = false}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF2A2A3E)),
-      ),
-      child: TextField(
-        controller: controller,
-        obscureText: isPassword,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-          prefixIcon: Icon(icon, color: const Color(0xFF7C5CFF)),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         ),
       ),
     );

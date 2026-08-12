@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
+import 'package:nexus_edu/core/services/azure_ai_service.dart';
 import 'package:nexus_edu/core/services/learner_profile_service.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/widgets/ai_tool_scaffold.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_chip_group.dart';
+import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
 class AiScannerScreen extends StatefulWidget {
   const AiScannerScreen({super.key});
@@ -21,9 +26,9 @@ class _AiScannerScreenState extends State<AiScannerScreen> {
 
   bool _isProcessing = false;
   String _scanResult = '';
+  String? _error;
   String? _selectedClass;
   String _scanMode = 'Textbook topic';
-  String? _lastImageName;
 
   final List<String> _scanModes = const [
     'Textbook topic',
@@ -56,22 +61,51 @@ class _AiScannerScreenState extends State<AiScannerScreen> {
 
     setState(() {
       _isProcessing = true;
+      _error = null;
       _scanResult = '';
-      _lastImageName = image.name;
     });
 
-    final bytes = await image.readAsBytes();
-    final result = await AiService.analyzeImage(bytes, _buildPrompt());
+    try {
+      final bytes = await image.readAsBytes();
+      final extractedText = await AzureAiService.ocrImage(bytes);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _isProcessing = false;
-      _scanResult = result;
-    });
+      if (extractedText.trim().isEmpty) {
+        setState(() {
+          _isProcessing = false;
+          _scanResult = 'No readable text found in this image.\n'
+              'Use a clearer photo with better lighting and make sure the '
+              'whole page is in frame.';
+        });
+        return;
+      }
+
+      final result = await AiService.chatRaw(
+        _buildPrompt(extractedText.length > 4000
+            ? extractedText.substring(0, 4000)
+            : extractedText),
+        systemPrompt:
+            'You are Nexus, an AI study assistant for Indian school students '
+            'using CBSE/ICSE/state syllabus. Analyse the OCR extracted text '
+            'and respond in clear English with markdown.',
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _scanResult = result;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _error = "Couldn't scan this page. Check your connection and try again.";
+      });
+    }
   }
 
-  String _buildPrompt() {
+  String _buildPrompt(String extractedText) {
     final topic = _topicController.text.trim();
     final classContext = _selectedClass == null
         ? 'Class is not selected. Infer level from the page and mention if class selection would improve accuracy.'
@@ -81,10 +115,15 @@ class _AiScannerScreenState extends State<AiScannerScreen> {
         : 'Student says the topic/chapter is "$topic".';
 
     return '''
-Analyze this study image for Nexus Edu.
+Analyze this study page for Nexus Edu. Text was extracted with OCR.
 $classContext
 $topicContext
 Scan mode: $_scanMode.
+
+Here is the extracted text from the page:
+---
+$extractedText
+---
 
 Return markdown in this exact structure:
 ## Detected Topic
@@ -115,85 +154,131 @@ If it is a math problem, solve step-by-step and include the final answer only af
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'AI Book Scanner',
-          style: TextStyle(fontWeight: FontWeight.bold),
+    return AiToolScaffold(
+      title: 'AI Book Scanner',
+      actions: [
+        IconButton(
+          tooltip: 'Change class',
+          onPressed: () => context.push('/elearning-class'),
+          icon: const Icon(Icons.school_outlined),
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Change class',
-            onPressed: () => context.push('/elearning-class'),
-            icon: const Icon(Icons.school_outlined),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 120),
+      ],
+      subtitle:
+          'Nexus will extract the chapter, split it topic-wise, pull important lines, and suggest what to revise next.',
+      inputForm: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildContextCard(context).animate().fade().slideY(begin: -0.06),
-          const SizedBox(height: 16),
-          _buildModeSelector().animate().fade(delay: 100.ms),
-          const SizedBox(height: 16),
-          _buildTopicInput().animate().fade(delay: 160.ms),
-          const SizedBox(height: 18),
-          if (_isProcessing)
-            _buildProcessingState().animate().fade()
-          else if (_scanResult.isNotEmpty)
-            _buildResultCard(context).animate().fade().slideY(begin: 0.08)
-          else
-            _buildEmptyState(context).animate().fade(delay: 220.ms),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-          child: Row(
+          _buildContextCard(context),
+          const SizedBox(height: AppSpace.md),
+          NexusChipGroup(
+            label: 'Scan Mode',
+            options: _scanModes,
+            selected: {_scanMode},
+            onChanged: (s) => setState(() => _scanMode = s.first),
+          ),
+          const SizedBox(height: AppSpace.md),
+          NexusTextField(
+            controller: _topicController,
+            label: 'Book topic or chapter',
+            hint: 'Example: Biology cell membrane, Life Processes',
+            icon: Icons.topic_outlined,
+          ),
+          const SizedBox(height: AppSpace.xs),
+          Wrap(
+            spacing: AppSpace.xs,
+            runSpacing: AppSpace.xs,
+            children: const ['Biology cell', 'Newton laws', 'Quadratic equations']
+                .map((text) => ActionChip(
+                      label: Text(text),
+                      avatar: const Icon(Icons.auto_awesome, size: 16),
+                      onPressed: () =>
+                          setState(() => _topicController.text = text),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: NexusButton(
+                  label: 'Gallery',
+                  icon: Icons.photo_library_outlined,
+                  variant: NexusButtonVariant.secondary,
                   onPressed: _isProcessing
                       ? null
                       : () => _scanImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('Gallery'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpace.sm),
               Expanded(
-                child: FilledButton.icon(
+                child: NexusButton(
+                  label: 'Scan Book',
+                  icon: Icons.camera_alt_outlined,
                   onPressed: _isProcessing
                       ? null
                       : () => _scanImage(ImageSource.camera),
-                  icon: const Icon(Icons.camera_alt_outlined),
-                  label: const Text('Scan Book'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                  ),
                 ),
               ),
             ],
           ),
-        ),
+        ],
       ),
+      generateLabel: 'Scan & Analyze',
+      isGenerating: _isProcessing,
+      onGenerate: () => _scanImage(ImageSource.gallery),
+      errorText: _error,
+      onRetry: () => _scanImage(ImageSource.gallery),
+      onCopy: () {
+        Clipboard.setData(ClipboardData(text: _scanResult));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Scan result copied.')),
+        );
+      },
+      resultBuilder: _scanResult.isEmpty
+          ? null
+          : (ctx) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  MarkdownBody(
+                    data: _scanResult,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet.fromTheme(
+                      Theme.of(ctx),
+                    ).copyWith(
+                      p: ctx.text.bodyLarge,
+                      h2: ctx.text.headlineSmall,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  NexusButton(
+                    label: 'Ask Tutor',
+                    icon: Icons.chat_bubble_outline,
+                    fullWidth: true,
+                    onPressed: _openResultInTutor,
+                  ),
+                  const SizedBox(height: AppSpace.xs),
+                  NexusButton(
+                    label: 'Watch related Shorts',
+                    icon: Icons.smart_display,
+                    variant: NexusButtonVariant.secondary,
+                    fullWidth: true,
+                    onPressed: () => context.go('/feed'),
+                  ),
+                ],
+              ),
     );
   }
 
   Widget _buildContextCard(BuildContext context) {
+    final t = context.tokens;
     final classLabel = _selectedClass ?? 'Guest mode';
     final topics = LearningCatalog.topicsFor(_selectedClass, null);
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpace.md),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withAlpha(120),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Theme.of(context).dividerColor.withAlpha(35)),
+        color: t.surfaceAlt,
+        borderRadius: AppRadius.brMd,
+        border: Border.all(color: t.border),
       ),
       child: Row(
         children: [
@@ -201,29 +286,23 @@ If it is a math problem, solve step-by-step and include the final answer only af
             height: 48,
             width: 48,
             decoration: BoxDecoration(
-              color: Colors.teal.withAlpha(28),
-              borderRadius: BorderRadius.circular(15),
+              color: t.primaryTint,
+              borderRadius: AppRadius.brSm,
             ),
-            child: const Icon(Icons.document_scanner, color: Colors.teal),
+            child: Icon(Icons.document_scanner, color: t.primary),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpace.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  classLabel,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                Text(classLabel, style: context.text.titleSmall),
                 const SizedBox(height: 4),
                 Text(
                   _selectedClass == null
                       ? 'Add a topic manually for better scan output.'
                       : '${topics.length} syllabus topics available for matching.',
-                  style: TextStyle(color: Theme.of(context).hintColor),
+                  style: context.text.bodySmall,
                 ),
               ],
             ),
@@ -234,185 +313,6 @@ If it is a math problem, solve step-by-step and include the final answer only af
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildModeSelector() {
-    return SizedBox(
-      height: 42,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _scanModes.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final mode = _scanModes[index];
-          return ChoiceChip(
-            label: Text(mode),
-            selected: _scanMode == mode,
-            onSelected: (_) => setState(() => _scanMode = mode),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTopicInput() {
-    return TextField(
-      controller: _topicController,
-      textInputAction: TextInputAction.done,
-      decoration: const InputDecoration(
-        labelText: 'Book topic or chapter',
-        hintText: 'Example: Biology cell membrane, Life Processes',
-        prefixIcon: Icon(Icons.topic_outlined),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withAlpha(90),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.menu_book_outlined,
-            size: 86,
-            color: Colors.deepPurpleAccent.withAlpha(130),
-          ),
-          const SizedBox(height: 18),
-          const Text(
-            'Scan a book page',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Nexus will extract the chapter, split it topic-wise, pull important lines, and suggest what to revise next.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey, height: 1.45),
-          ),
-          const SizedBox(height: 20),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _buildSuggestionChip('Biology cell'),
-              _buildSuggestionChip('Newton laws'),
-              _buildSuggestionChip('Quadratic equations'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSuggestionChip(String text) {
-    return ActionChip(
-      label: Text(text),
-      avatar: const Icon(Icons.auto_awesome, size: 16),
-      onPressed: () => setState(() => _topicController.text = text),
-    );
-  }
-
-  Widget _buildProcessingState() {
-    return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withAlpha(90),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          const CircularProgressIndicator(color: Colors.deepPurpleAccent),
-          const SizedBox(height: 22),
-          const Text(
-            'Nexus AI is reading the page...',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          if (_lastImageName != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _lastImageName!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.grey),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildResultCard(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          constraints: const BoxConstraints(minHeight: 360),
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.deepPurpleAccent.withAlpha(50)),
-            boxShadow: [
-              BoxShadow(color: Colors.deepPurple.withAlpha(18), blurRadius: 20),
-            ],
-          ),
-          child: MarkdownBody(
-            data: _scanResult,
-            selectable: true,
-            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
-                .copyWith(
-                  p: const TextStyle(fontSize: 15, height: 1.45),
-                  h2: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: _scanResult));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Scan result copied.')),
-                  );
-                },
-                icon: const Icon(Icons.copy),
-                label: const Text('Copy'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: _openResultInTutor,
-                icon: const Icon(Icons.chat_bubble_outline),
-                label: const Text('Ask Tutor'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () => context.go('/feed'),
-            icon: const Icon(Icons.smart_display),
-            label: const Text('Watch related Shorts'),
-          ),
-        ),
-      ],
     );
   }
 }

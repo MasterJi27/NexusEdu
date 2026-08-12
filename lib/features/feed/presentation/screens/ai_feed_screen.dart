@@ -1,12 +1,11 @@
-import 'dart:ui';
-
-import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
-import 'package:nexus_edu/core/services/youtube_discovery_service.dart';
+import 'package:nexus_edu/core/theme/app_theme.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/features/feed/presentation/providers/feed_provider.dart';
+import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
 class AiFeedScreen extends ConsumerStatefulWidget {
@@ -64,6 +63,16 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     });
   }
 
+  void _goToPage(int target, int count) {
+    if (target < 0 || target >= count) return;
+    if (!_pageController.hasClients) return;
+    _pageController.animateToPage(
+      target,
+      duration: AppMotion.sheet,
+      curve: AppMotion.standard,
+    );
+  }
+
   void _onPageChanged(int index, List<LearningShort> videos) {
     setState(() => _currentIndex = index);
 
@@ -111,42 +120,46 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     const guestModeValue = '__guest__';
     final nextClass = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
       showDragHandle: true,
-      builder: (context) {
+      builder: (sheetContext) {
+        final t = sheetContext.tokens;
         return SafeArea(
           child: ListView(
             shrinkWrap: true,
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.lg,
+              0,
+              AppSpace.lg,
+              AppSpace.lg,
+            ),
             children: [
-              const Text(
+              Text(
                 'Choose learning class',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: sheetContext.text.titleLarge,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.sm),
               ListTile(
                 leading: const Icon(Icons.person_outline),
                 title: const Text('Guest mode'),
                 subtitle: const Text('Ask by topic every time'),
-                onTap: () => Navigator.pop(context, guestModeValue),
+                onTap: () => Navigator.pop(sheetContext, guestModeValue),
               ),
-              const Divider(),
+              Divider(color: t.border),
               for (final className in LearningCatalog.classes)
                 ListTile(
                   leading: Icon(
                     currentSelectedClass == className
                         ? Icons.radio_button_checked
                         : Icons.school_outlined,
-                    color: currentSelectedClass == className
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
+                    color:
+                        currentSelectedClass == className ? t.primary : null,
                   ),
                   title: Text(className),
                   subtitle: Text(
                     '${LearningCatalog.subjectsFor(className).length} subjects, '
                     '${LearningCatalog.topicsFor(className, null).length} topics',
                   ),
-                  onTap: () => Navigator.pop(context, className),
+                  onTap: () => Navigator.pop(sheetContext, className),
                 ),
             ],
           ),
@@ -179,50 +192,78 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
   Widget build(BuildContext context) {
     final feedStateAsync = ref.watch(feedProvider);
 
-    return feedStateAsync.when(
-      loading: () => const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator()),
-      ),
-      error: (err, stack) => Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: Text(
-            'Error: $err',
-            style: const TextStyle(color: Colors.white),
+    return Theme(
+      data: AppTheme.darkTheme,
+      child: Builder(
+        builder: (context) => feedStateAsync.when(
+          loading: () => Scaffold(
+            backgroundColor: context.tokens.page,
+            body: Center(
+              child: CircularProgressIndicator(color: context.tokens.primary),
+            ),
           ),
+          error: (err, stack) => Scaffold(
+            backgroundColor: context.tokens.page,
+            body: Center(
+              child: Text(
+                'Error: $err',
+                style: context.text.bodyMedium?.copyWith(color: context.tokens.inkMuted),
+              ),
+            ),
+          ),
+          data: (feedState) {
+            if (feedState.selectedClass == null && feedState.guestQuery == null) {
+              return _buildGuestTopicScreen(context, null);
+            }
+
+            if (feedState.videos.isEmpty) {
+              return _buildEmptyScreen(context, feedState.selectedClass);
+            }
+
+            final currentIndex = _currentIndex.clamp(0, feedState.videos.length - 1);
+            final currentVideo = feedState.videos[currentIndex];
+            final isCompleted = feedState.completedShortIds.contains(currentVideo.videoId);
+
+            return Scaffold(
+              backgroundColor: context.tokens.page,
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    _buildTopFilters(context, feedState),
+                    Expanded(
+                      child: PageView.builder(
+                        controller: _pageController,
+                        scrollDirection: Axis.vertical,
+                        // The YouTube player is a native platform view (WebView) that
+                        // renders and receives touches above Flutter's own widgets, so
+                        // neither drag gestures nor overlaid buttons on top of it work
+                        // reliably. Navigation controls live below the video instead,
+                        // in screen space the player doesn't occupy.
+                        physics: const NeverScrollableScrollPhysics(),
+                        onPageChanged: (index) =>
+                            _onPageChanged(index, feedState.videos),
+                        itemCount: feedState.videos.length,
+                        itemBuilder: (context, index) {
+                          _initController(index, feedState.videos);
+                          return _buildVideoArea(context, index);
+                        },
+                      ),
+                    ),
+                    _buildBottomControlBar(
+                      context,
+                      video: currentVideo,
+                      isCompleted: isCompleted,
+                      completedCount: feedState.completedShortIds.length,
+                      index: currentIndex,
+                      count: feedState.videos.length,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
-      data: (feedState) {
-        if (feedState.selectedClass == null && feedState.guestQuery == null) {
-          return _buildGuestTopicScreen(context, null);
-        }
-
-        if (feedState.videos.isEmpty) {
-          return _buildEmptyScreen(context, feedState.selectedClass);
-        }
-
-        return Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.vertical,
-                onPageChanged: (index) =>
-                    _onPageChanged(index, feedState.videos),
-                itemCount: feedState.videos.length,
-                itemBuilder: (context, index) {
-                  _initController(index, feedState.videos);
-                  return _buildShortPage(context, index, feedState);
-                },
-              ),
-              _buildTopFilters(context, feedState),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -230,11 +271,12 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     BuildContext context,
     String? currentSelectedClass,
   ) {
+    final t = context.tokens;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: t.page,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(AppSpace.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -243,21 +285,17 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.redAccent.withAlpha(40),
-                      borderRadius: BorderRadius.circular(16),
+                      color: t.primaryTint,
+                      borderRadius: AppRadius.brMd,
                     ),
-                    child: const Icon(
-                      Icons.smart_display,
-                      color: Colors.redAccent,
-                    ),
+                    child: Icon(Icons.smart_display, color: t.primary),
                   ),
-                  const SizedBox(width: 12),
-                  const Expanded(
+                  const SizedBox(width: AppSpace.sm),
+                  Expanded(
                     child: Text(
                       'Learning Shorts',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
+                      style: context.text.headlineSmall?.copyWith(
+                        color: t.ink,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -265,139 +303,88 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
                   IconButton(
                     tooltip: 'Select class',
                     onPressed: () => _showClassPicker(currentSelectedClass),
-                    icon: const Icon(
-                      Icons.school_outlined,
-                      color: Colors.white,
-                    ),
+                    icon: Icon(Icons.school_outlined, color: t.ink),
                   ),
                 ],
               ),
-              const SizedBox(height: 40),
-              const Text(
+              const SizedBox(height: AppSpace.xl),
+              Text(
                 'Guest mode',
-                style: TextStyle(color: Colors.white54, fontSize: 16),
+                style: context.text.bodyLarge?.copyWith(color: t.inkMuted),
               ),
-              const SizedBox(height: 8),
-              const Text(
+              const SizedBox(height: AppSpace.xs),
+              Text(
                 'What topic do you want shorts for?',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
+                style: context.text.headlineLarge?.copyWith(
+                  color: t.ink,
                   height: 1.05,
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
+              const SizedBox(height: AppSpace.md),
+              Text(
                 'Select a class once to unlock syllabus-only recommendations. Without a class, Nexus asks for a topic first.',
-                style: TextStyle(
-                  color: Colors.white60,
-                  fontSize: 15,
+                style: context.text.bodyMedium?.copyWith(
+                  color: t.inkMuted,
                   height: 1.4,
                 ),
               ),
-              if (!YoutubeDiscoveryService.hasApiKey) ...[
-                const SizedBox(height: 18),
-                _buildConfigNotice(
-                  'Live YouTube discovery is not enabled in this build. Local syllabus Shorts will still open.',
-                ),
-              ],
-              const SizedBox(height: 28),
+              const SizedBox(height: AppSpace.xl),
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(20),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withAlpha(30)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.deepPurpleAccent.withAlpha(40),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  color: t.surfaceAlt,
+                  borderRadius: AppRadius.brMd,
+                  border: Border.all(color: t.border),
                 ),
                 child: TextField(
                   controller: _topicController,
-                  style: const TextStyle(color: Colors.white),
+                  style: context.text.bodyLarge?.copyWith(color: t.ink),
                   textInputAction: TextInputAction.search,
                   onSubmitted: (_) => _submitGuestTopic(),
                   decoration: InputDecoration(
                     hintText: 'Example: cell membrane, quadratic equations',
-                    hintStyle: TextStyle(color: Colors.white.withAlpha(100)),
+                    hintStyle: context.text.bodyMedium?.copyWith(color: t.inkFaint),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
+                      horizontal: AppSpace.lg,
+                      vertical: AppSpace.md,
                     ),
-                    prefixIcon: Icon(
-                      Icons.search,
-                      color: Colors.white.withAlpha(150),
-                    ),
+                    prefixIcon: Icon(Icons.search, color: t.inkFaint),
                     suffixIcon: IconButton(
                       onPressed: _isDiscovering ? null : _submitGuestTopic,
                       icon: _isDiscovering
-                          ? const SizedBox(
+                          ? SizedBox(
                               height: 20,
                               width: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.deepPurpleAccent,
+                                color: t.primary,
                               ),
                             )
-                          : const Icon(
-                              Icons.arrow_forward,
-                              color: Colors.deepPurpleAccent,
-                            ),
+                          : Icon(Icons.arrow_forward, color: t.primary),
                     ),
                   ),
                 ),
-              ).animate().fade(duration: 500.ms).slideY(begin: 0.1),
-              const SizedBox(height: 18),
+              ),
+              const SizedBox(height: AppSpace.md),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  _buildTopicSuggestion('Biology cell', 0),
-                  _buildTopicSuggestion('Newton laws', 1),
-                  _buildTopicSuggestion('Photosynthesis', 2),
-                  _buildTopicSuggestion('Quadratic equations', 3),
+                  _buildTopicSuggestion(context, 'Biology cell', 0),
+                  _buildTopicSuggestion(context, 'Newton laws', 1),
+                  _buildTopicSuggestion(context, 'Photosynthesis', 2),
+                  _buildTopicSuggestion(context, 'Quadratic equations', 3),
                 ],
               ),
               const Spacer(),
-              const SizedBox(height: 80),
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.deepPurpleAccent,
-                      Colors.purple.withAlpha(200),
-                    ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.deepPurpleAccent.withAlpha(80),
-                      blurRadius: 15,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: FilledButton.icon(
-                  onPressed: () => _showClassPicker(currentSelectedClass),
-                  icon: const Icon(Icons.school, color: Colors.white),
-                  label: const Text(
-                    'Select Class for syllabus feed',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                  ),
-                ),
-              ).animate().fade(delay: 500.ms).slideY(begin: 0.2),
+              const SizedBox(height: AppSpace.lg),
+              NexusButton(
+                label: 'Select Class for syllabus feed',
+                icon: Icons.school,
+                fullWidth: true,
+                onPressed: () => _showClassPicker(currentSelectedClass),
+              ),
             ],
           ),
         ),
@@ -405,63 +392,58 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     );
   }
 
-  Widget _buildTopicSuggestion(String topic, int index) {
+  Widget _buildTopicSuggestion(BuildContext context, String topic, int index) {
+    final t = context.tokens;
     return ActionChip(
-          label: Text(
-            topic,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
-          backgroundColor: const Color(0xFF2A2A2A),
-          side: const BorderSide(color: Color(0xFF444444)),
-          labelStyle: const TextStyle(color: Colors.white),
-          onPressed: () {
-            _topicController.text = topic;
-            _submitGuestTopic();
-          },
-        )
-        .animate()
-        .fade(delay: (100 * index).ms)
-        .scale(begin: const Offset(0.9, 0.9));
+      label: Text(
+        topic,
+        style: context.text.labelLarge?.copyWith(
+          color: t.ink,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      avatar: Icon(Icons.bolt, size: 16, color: t.secondary),
+      backgroundColor: t.surfaceAlt,
+      side: BorderSide(color: t.border),
+      onPressed: () {
+        _topicController.text = topic;
+        _submitGuestTopic();
+      },
+    );
   }
 
   Widget _buildEmptyScreen(BuildContext context, String? currentSelectedClass) {
+    final t = context.tokens;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: t.page,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpace.lg),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.video_library_outlined,
                 size: 72,
-                color: Colors.white.withAlpha(130),
+                color: t.inkFaint,
               ),
-              const SizedBox(height: 20),
-              const Text(
+              const SizedBox(height: AppSpace.lg),
+              Text(
                 'No shorts matched this filter',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: context.text.headlineSmall?.copyWith(color: t.ink),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.sm),
               Text(
-                YoutubeDiscoveryService.hasApiKey
-                    ? 'Try another topic or switch class filters.'
-                    : 'Live discovery is not enabled in this build. Switch class filters for local syllabus Shorts.',
+                'Try another topic or switch class filters.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white.withAlpha(160)),
+                style: context.text.bodyMedium?.copyWith(color: t.inkMuted),
               ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
+              const SizedBox(height: AppSpace.lg),
+              NexusButton(
+                label: 'Change filters',
+                icon: Icons.tune,
                 onPressed: () => _showClassPicker(currentSelectedClass),
-                icon: const Icon(Icons.tune),
-                label: const Text('Change filters'),
               ),
             ],
           ),
@@ -470,223 +452,150 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
     );
   }
 
-  Widget _buildConfigNotice(String message) {
+  Widget _buildVideoArea(BuildContext context, int index) {
+    final controller = _controllers[index]!;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.amber.withAlpha(26),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.amber.withAlpha(90)),
+      color: context.tokens.page,
+      child: IgnorePointer(
+        child: YoutubePlayer(
+          controller: controller,
+          backgroundColor: context.tokens.page,
+        ),
       ),
-      child: Row(
+    );
+  }
+
+  // Controls live BELOW the video, never overlapping its bounds. The embedded
+  // YouTube player is a native platform view that composites and receives
+  // touches above Flutter's own widgets, so anything drawn or tapped on top
+  // of it (gradients, buttons, drag gestures) is unreliable-to-invisible.
+  Widget _buildBottomControlBar(
+    BuildContext context, {
+    required LearningShort video,
+    required bool isCompleted,
+    required int completedCount,
+    required int index,
+    required int count,
+  }) {
+    final t = context.tokens;
+    final controller = _controllers[index];
+
+    return Container(
+      color: t.surface,
+      padding: const EdgeInsets.fromLTRB(AppSpace.md, AppSpace.sm, AppSpace.md, AppSpace.sm),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.key_outlined, color: Colors.amberAccent, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(color: Colors.white70, height: 1.35),
+          Wrap(
+            spacing: AppSpace.xs,
+            runSpacing: AppSpace.xs,
+            children: [
+              _buildMiniChip(context, video.className),
+              _buildMiniChip(context, video.subject),
+              if (video.isApiResult) _buildMiniChip(context, 'Live YouTube'),
+            ],
+          ),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            video.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: context.text.titleMedium?.copyWith(
+              color: t.ink,
+              height: 1.15,
+              fontWeight: FontWeight.w800,
             ),
+          ),
+          const SizedBox(height: AppSpace.xxs),
+          Text(
+            '${video.creator} • ${video.topic}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.text.labelSmall?.copyWith(
+              color: t.inkMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpace.sm),
+          Row(
+            children: [
+              Expanded(
+                child: LinearProgressIndicator(
+                  value: (completedCount / 12).clamp(0.0, 1.0),
+                  minHeight: 6,
+                  borderRadius: AppRadius.brPill,
+                  backgroundColor: t.surfaceAlt,
+                  color: isCompleted ? t.statusPresent : t.secondary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${index + 1}/$count',
+                style: context.text.labelSmall?.copyWith(
+                  color: t.inkMuted,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.sm),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildNavArrow(
+                context,
+                icon: Icons.keyboard_arrow_up,
+                onTap: () => _goToPage(index - 1, count),
+              ),
+              IconButton(
+                icon: Icon(Icons.play_arrow_rounded, color: t.ink),
+                iconSize: 30,
+                onPressed: () async {
+                  if (controller == null) return;
+                  final state = await controller.playerState;
+                  if (state == PlayerState.playing) {
+                    controller.pauseVideo();
+                  } else {
+                    controller.playVideo();
+                  }
+                },
+              ),
+              _buildNavArrow(
+                context,
+                icon: Icons.keyboard_arrow_down,
+                onTap: () => _goToPage(index + 1, count),
+              ),
+              _buildActionButton(
+                context,
+                icon: isCompleted ? Icons.check_circle : Icons.check_circle_outline,
+                label: isCompleted ? 'Done' : 'Save',
+                color: isCompleted ? t.statusPresent : t.ink,
+                onTap: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  await ref.read(feedProvider.notifier).markCompleted(video);
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Saved "${video.topic}" to your progress.')),
+                  );
+                },
+              ),
+              _buildActionButton(
+                context,
+                icon: Icons.smart_toy_outlined,
+                label: 'Tutor',
+                color: t.ink,
+                onTap: () => context.go('/tutor'),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildShortPage(BuildContext context, int index, FeedState feedState) {
-    final video = feedState.videos[index];
-    final controller = _controllers[index]!;
-    final isCompleted = feedState.completedShortIds.contains(video.videoId);
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Container(color: Colors.black),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: YoutubePlayer(
-              controller: controller,
-              backgroundColor: Colors.black,
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: () async {
-              final state = await controller.playerState;
-              if (state == PlayerState.playing) {
-                controller.pauseVideo();
-              } else {
-                controller.playVideo();
-              }
-            },
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withAlpha(204),
-                    Colors.transparent,
-                    Colors.transparent,
-                    Colors.black.withAlpha(230),
-                  ],
-                  stops: const [0.0, 0.2, 0.6, 1.0],
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          right: 14,
-          bottom: 104,
-          child: Column(
-            children: [
-              _buildActionButton(
-                icon: isCompleted
-                    ? Icons.check_circle
-                    : Icons.check_circle_outline,
-                label: isCompleted ? 'Done' : 'Save',
-                color: isCompleted ? Colors.tealAccent : Colors.white,
-                onTap: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  await ref.read(feedProvider.notifier).markCompleted(video);
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Saved "${video.topic}" to your progress.'),
-                    ),
-                  );
-                },
-              ),
-              _buildActionButton(
-                icon: Icons.smart_toy_outlined,
-                label: 'Tutor',
-                color: Colors.white,
-                onTap: () => context.go('/tutor'),
-              ),
-              _buildActionButton(
-                icon: Icons.share_outlined,
-                label: 'Share',
-                color: Colors.white,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Share flow coming soon.')),
-                  );
-                },
-              ),
-            ],
-          ),
-        ).animate().fade(delay: 300.ms).slideX(begin: 0.3),
-        Positioned(
-          left: 16,
-          right: 76,
-          bottom: 18,
-          child: _buildInfoPanel(
-            context,
-            video,
-            isCompleted,
-            feedState.completedShortIds.length,
-          ),
-        ).animate().fade(delay: 150.ms).slideY(begin: 0.18),
-      ],
-    );
-  }
-
-  Widget _buildInfoPanel(
-    BuildContext context,
-    LearningShort video,
-    bool isCompleted,
-    int completedCount,
-  ) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.black.withAlpha(100),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withAlpha(35)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _buildMiniChip(video.className),
-                  _buildMiniChip(video.subject),
-                  if (video.isApiResult) _buildMiniChip('Live YouTube'),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                video.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  height: 1.1,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${video.creator} • ${video.topic}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                video.takeaway,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white70, height: 1.35),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: LinearProgressIndicator(
-                      value: (completedCount / 12).clamp(0.0, 1.0),
-                      minHeight: 7,
-                      borderRadius: BorderRadius.circular(20),
-                      backgroundColor: Colors.white.withAlpha(30),
-                      color: isCompleted
-                          ? Colors.tealAccent
-                          : Colors.amberAccent,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '$completedCount/12',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildTopFilters(BuildContext context, FeedState feedState) {
+    final t = context.tokens;
     final className = feedState.selectedClass;
     final subjects = className == null
         ? const <SubjectSyllabus>[]
@@ -695,176 +604,169 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
         ? const <String>[]
         : LearningCatalog.topicsFor(className, feedState.selectedSubject);
 
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      child: SafeArea(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black.withAlpha(200), Colors.transparent],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.xs),
+      color: t.page,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      className != null
-                          ? '$className Feed'
-                          : 'Search: "${feedState.guestQuery}"',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black,
-                            blurRadius: 4,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+              Expanded(
+                child: Text(
+                  className != null
+                      ? '$className Feed'
+                      : 'Search: "${feedState.guestQuery}"',
+                  style: context.text.titleLarge?.copyWith(
+                    color: t.ink,
+                    fontWeight: FontWeight.w900,
                   ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.tune,
-                      color: Colors.white,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black,
-                          blurRadius: 4,
-                          offset: Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                    onPressed: () => _showClassPicker(className),
-                  ),
-                ],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              if (subjects.isNotEmpty)
-                SizedBox(
-                  height: 36,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: subjects.length + 1,
-                    separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (context, i) {
-                      final isAll = i == 0;
-                      final label = isAll
-                          ? 'All Subjects'
-                          : subjects[i - 1].name;
-                      final isSelected = feedState.selectedSubject == label;
-                      return ChoiceChip(
-                        label: Text(
-                          label,
-                          style: TextStyle(
-                            color: isSelected ? Colors.black : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        selected: isSelected,
-                        selectedColor: Colors.white,
-                        backgroundColor: Colors.black.withAlpha(100),
-                        onSelected: (val) {
-                          if (val) {
-                            ref
-                                .read(feedProvider.notifier)
-                                .applySyllabusFilter(
-                                  subject: label,
-                                  topic: 'All',
-                                );
-                            final videos =
-                                ref.read(feedProvider).asData?.value.videos ??
-                                feedState.videos;
-                            _resetControllers(videos);
-                          }
-                        },
-                      );
-                    },
-                  ),
-                ),
-              if (feedState.selectedSubject != 'All' && topics.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: SizedBox(
-                    height: 32,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: topics.length + 1,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final isAll = i == 0;
-                        final label = isAll ? 'All Topics' : topics[i - 1];
-                        final isSelected = feedState.selectedTopic == label;
-                        return ChoiceChip(
-                          label: Text(
-                            label,
-                            style: TextStyle(
-                              color: isSelected ? Colors.black : Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                          selected: isSelected,
-                          selectedColor: Colors.tealAccent,
-                          backgroundColor: Colors.black.withAlpha(100),
-                          onSelected: (val) {
-                            if (val) {
-                              ref
-                                  .read(feedProvider.notifier)
-                                  .applySyllabusFilter(topic: label);
-                              final videos =
-                                  ref.read(feedProvider).asData?.value.videos ??
-                                  feedState.videos;
-                              _resetControllers(videos);
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ),
+              IconButton(
+                icon: Icon(Icons.tune, color: t.ink),
+                onPressed: () => _showClassPicker(className),
+              ),
             ],
           ),
-        ),
+          if (subjects.isNotEmpty)
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: subjects.length + 1,
+                separatorBuilder: (_, _) => const SizedBox(width: AppSpace.xs),
+                itemBuilder: (context, i) {
+                  final isAll = i == 0;
+                  final label = isAll ? 'All Subjects' : subjects[i - 1].name;
+                  final isSelected = feedState.selectedSubject == label;
+                  return ChoiceChip(
+                    label: Text(
+                      label,
+                      style: context.text.labelMedium?.copyWith(
+                        color: isSelected ? t.page : t.ink,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    selected: isSelected,
+                    selectedColor: t.ink,
+                    backgroundColor: t.surfaceAlt,
+                    onSelected: (val) {
+                      if (val) {
+                        ref
+                            .read(feedProvider.notifier)
+                            .applySyllabusFilter(
+                              subject: label,
+                              topic: 'All',
+                            );
+                        final videos =
+                            ref.read(feedProvider).asData?.value.videos ??
+                            feedState.videos;
+                        _resetControllers(videos);
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+          if (feedState.selectedSubject != 'All' && topics.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpace.xs),
+              child: SizedBox(
+                height: 32,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: topics.length + 1,
+                  separatorBuilder: (_, _) => const SizedBox(width: AppSpace.xs),
+                  itemBuilder: (context, i) {
+                    final isAll = i == 0;
+                    final label = isAll ? 'All Topics' : topics[i - 1];
+                    final isSelected = feedState.selectedTopic == label;
+                    return ChoiceChip(
+                      label: Text(
+                        label,
+                        style: context.text.labelSmall?.copyWith(
+                          color: isSelected ? t.page : t.inkMuted,
+                        ),
+                      ),
+                      selected: isSelected,
+                      selectedColor: t.secondary,
+                      backgroundColor: t.surfaceAlt,
+                      onSelected: (val) {
+                        if (val) {
+                          ref
+                              .read(feedProvider.notifier)
+                              .applySyllabusFilter(topic: label);
+                          final videos =
+                              ref.read(feedProvider).asData?.value.videos ??
+                              feedState.videos;
+                          _resetControllers(videos);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildMiniChip(String label) {
+  Widget _buildMiniChip(BuildContext context, String label) {
+    final t = context.tokens;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.xs,
+        vertical: AppSpace.xxs,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(50),
-        borderRadius: BorderRadius.circular(999),
+        color: t.surfaceAlt,
+        borderRadius: AppRadius.brPill,
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
+        style: context.text.labelSmall?.copyWith(
+          color: t.inkMuted,
           fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
 
-  Widget _buildActionButton({
+  Widget _buildNavArrow(
+    BuildContext context, {
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final t = context.tokens;
+    return InkResponse(
+      onTap: onTap,
+      radius: 26,
+      child: Container(
+        height: 40,
+        width: 40,
+        decoration: BoxDecoration(
+          color: t.surfaceAlt,
+          shape: BoxShape.circle,
+          border: Border.all(color: t.border),
+        ),
+        child: Icon(icon, color: t.inkMuted, size: 24),
+      ),
+    );
+  }
+
+  Widget _buildActionButton(
+    BuildContext context, {
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
   }) {
+    final t = context.tokens;
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: InkResponse(
@@ -872,27 +774,21 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
         radius: 34,
         child: Column(
           children: [
-            ClipOval(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                child: Container(
-                  height: 48,
-                  width: 48,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withAlpha(90),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withAlpha(40)),
-                  ),
-                  child: Icon(icon, color: color, size: 27),
-                ),
+            Container(
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                color: t.surfaceAlt,
+                shape: BoxShape.circle,
+                border: Border.all(color: t.border),
               ),
+              child: Icon(icon, color: color, size: 27),
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: AppSpace.xxs),
             Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
+              style: context.text.labelSmall?.copyWith(
+                color: t.ink,
                 fontWeight: FontWeight.bold,
               ),
             ),
