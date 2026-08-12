@@ -30,6 +30,7 @@ import attendanceRoutes from './routes/attendance';
 import classroomRoutes from './routes/classroom';
 import azureAiRoutes from './routes/azureAi';
 import errorsRoutes from './routes/errors';
+import { resolveCorsOrigin } from './lib/cors';
 import { authenticate } from './middlewares/auth';
 import { requestLogger, securityHeaders, notFound, errorHandler } from './middlewares/error';
 import rateLimit from 'express-rate-limit';
@@ -43,21 +44,7 @@ const port = process.env.PORT || 3000;
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
-/**
- * Fails closed, not open: with no ALLOWED_ORIGINS configured, CORS denies
- * all cross-origin requests by default — it does NOT infer permissiveness
- * from NODE_ENV, since a missing/misconfigured NODE_ENV on the host would
- * otherwise silently turn into allow-all-origins in production. The only way
- * to get the permissive local-dev behaviour is the explicit opt-in flag
- * below, which a developer sets deliberately in their own .env and would
- * never end up in a hosting platform's settings by accident.
- */
-const allowedOrigins = env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
-app.use(cors({
-  origin: allowedOrigins && allowedOrigins.length > 0
-    ? allowedOrigins
-    : env.ALLOW_ALL_ORIGINS_DEV,
-}));
+app.use(cors({ origin: resolveCorsOrigin(env.ALLOWED_ORIGINS, env.ALLOW_ALL_ORIGINS_DEV) }));
 
 app.use(securityHeaders);
 app.use(requestLogger);

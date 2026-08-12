@@ -54,12 +54,18 @@ def deploy():
     print("Deploying zip to Azure App Service...")
     # Use the az CLI directly. On Windows the executable is az.cmd; shell=True
     # lets the OS resolve it from PATH.
+    # --async: the zip (dist/prisma/node_modules bundled together) is large
+    # enough that Kudu's extraction routinely outlives az CLI's synchronous
+    # wait, which then reports a false "504 Gateway Timeout" even though the
+    # deployment keeps going server-side. Async just pushes the artifact and
+    # exits; poll `az webapp log deployment show` separately for real status.
     cmd = (
         'az webapp deploy '
         '--resource-group nexus-edu-prod '
         '--name nexus-edu-backend '
         '--src-path deploy.zip '
-        '--type zip'
+        '--type zip '
+        '--async true'
     )
 
     result = subprocess.run(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)

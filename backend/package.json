@@ -14,7 +14,7 @@
     "prisma:generate": "prisma generate",
     "composio:connect": "node scripts/composio-connect.cjs",
     "seed:rag": "ts-node seed/seedRag.ts",
-    "test": "echo \"No test suite configured yet\""
+    "test": "vitest run"
   },
   "keywords": [
     "edtech",
@@ -51,7 +51,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/supertest": "^7.2.1",
     "prisma": "^7.9.1",
-    "ts-node": "^10.9.2"
+    "supertest": "^7.2.2",
+    "ts-node": "^10.9.2",
+    "vitest": "^4.1.10"
   }
 }
