@@ -46,3 +46,24 @@ app.*.map.json
 
 # Environment variables
 .env
+
+# Figma MCP image downloads
+/figma_images/
+
+# Backend build output
+/backend/dist/
+
+# local postgres dev binaries + data
+/.local/
+backend/server.log
+backend/server.log.err
+
+# Android signing credentials (never commit)
+android/key.properties
+*.jks
+
+# AI coding-tool scratch/config output — not project source
+.artifacts/
+.codex/
+opencode.json
+

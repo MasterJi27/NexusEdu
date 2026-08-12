@@ -1,0 +1,607 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>NexusEdu — Smart Scanner</title>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/framer-motion@11.11.13/dist/framer-motion.js" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      /* Modern Academic Palette */
+      --bg: oklch(99% 0 0);
+      --surface: oklch(100% 0 0);
+      --surface-alt: oklch(96% 0 0);
+      --fg: oklch(15% 0 0);
+      --muted: oklch(50% 0 0);
+      --border: oklch(90% 0 0);
+      
+      /* Electric Violet Accent */
+      --accent: oklch(45% 0.28 290);
+      --accent-muted: oklch(95% 0.05 290);
+      --error: oklch(55% 0.15 25);
+      
+      --font-display: 'Iowan Old Style', 'Charter', Georgia, serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      
+      /* Bouncy Spring Physics */
+      --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #e5e5e5;
+      color: var(--fg);
+      font-family: var(--font-body);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Tweaks Panel */
+    .tweaks-panel {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 1000;
+      width: 200px;
+    }
+    .tweaks-panel h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+      color: var(--muted);
+    }
+    .tweak-btn {
+      display: block;
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-size: 13px;
+      text-align: left;
+      transition: background 0.2s;
+    }
+    .tweak-btn:hover { background: var(--surface-alt); }
+    .tweak-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+    /* Hardware Frame */
+    .device-frame {
+      width: 393px;
+      height: 852px;
+      background: #000; /* Camera background base */
+      border-radius: 54px;
+      box-shadow: 0 0 0 12px #0f0f0f, 0 0 0 14px #333, 0 20px 40px rgba(0,0,0,0.2);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Viewfinder Background */
+    .viewfinder-bg {
+      position: absolute;
+      inset: 0;
+      background: 
+        radial-gradient(circle at 50% 50%, transparent 20%, rgba(0,0,0,0.4) 100%),
+        url('data:image/svg+xml;utf8,<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="%23222"/><path d="M10,30 L90,30 M10,50 L90,50 M10,70 L90,70" stroke="%23444" stroke-width="2"/></svg>') center/cover;
+      filter: blur(1px);
+      z-index: 1;
+      transition: filter 0.3s;
+    }
+    .viewfinder-bg.blurred { filter: blur(8px); }
+
+    /* Dynamic Island */
+    .dynamic-island {
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120px;
+      height: 36px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 100;
+    }
+
+    /* Status Bar (White for dark bg) */
+    .status-bar {
+      height: 54px;
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+      color: #fff;
+      z-index: 90;
+      position: relative;
+    }
+    .status-icons { display: flex; gap: 6px; align-items: center; }
+
+    /* Home Indicator (White) */
+    .home-indicator {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 134px;
+      height: 5px;
+      background: #fff;
+      border-radius: 100px;
+      z-index: 100;
+    }
+
+    /* App Container */
+    .app-root {
+      flex: 1;
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header Controls */
+    .scanner-header {
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 22px;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.2s var(--spring);
+    }
+    .icon-btn:active { transform: scale(0.9); }
+
+    /* Viewfinder Brackets */
+    .brackets-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+    }
+    .bracket-box {
+      width: 100%;
+      aspect-ratio: 4/3;
+      position: relative;
+      transition: all 0.5s var(--spring);
+    }
+    .bracket-box.processing {
+      transform: scale(0.95);
+      opacity: 0.8;
+    }
+    
+    .corner {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255,255,255,0.8);
+      transition: border-color 0.3s;
+    }
+    .corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; border-top-left-radius: 12px; }
+    .corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; border-top-right-radius: 12px; }
+    .corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; border-bottom-left-radius: 12px; }
+    .corner.br { bottom: 0; right: 0; border-left: none; border-top: none; border-bottom-right-radius: 12px; }
+    
+    .scanner-active .corner { border-color: var(--accent); }
+
+    /* Laser animation for processing state */
+    .laser-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      top: 0;
+      animation: scanLaser 1.5s ease-in-out infinite alternate;
+      opacity: 0;
+    }
+    .processing .laser-line { opacity: 1; }
+    
+    @keyframes scanLaser {
+      0% { top: 0; }
+      100% { top: 100%; }
+    }
+    
+    .instruction-text {
+      position: absolute;
+      bottom: -40px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      color: #fff;
+      font-size: 14px;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      font-weight: 500;
+    }
+
+    /* Bottom Controls */
+    .scanner-footer {
+      padding: 32px 24px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .mode-selector {
+      display: flex;
+      gap: 16px;
+      color: rgba(255,255,255,0.6);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .mode-item { transition: color 0.2s; }
+    .mode-item.active { color: var(--accent); }
+    
+    /* Capture Button */
+    .capture-ring {
+      width: 72px;
+      height: 72px;
+      border-radius: 36px;
+      border: 3px solid #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+    }
+    .capture-btn {
+      width: 58px;
+      height: 58px;
+      border-radius: 29px;
+      background: #fff;
+      transition: all 0.3s var(--spring);
+    }
+    .capture-ring:active .capture-btn {
+      transform: scale(0.9);
+      background: #eee;
+    }
+    .capture-ring.processing .capture-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: var(--accent);
+    }
+
+    .gallery-preview {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.3);
+      cursor: pointer;
+    }
+
+    /* Bottom Sheet Drawer */
+    .bottom-sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg);
+      border-radius: 32px 32px 0 0;
+      padding: 12px 24px 48px;
+      transform: translateY(100%);
+      transition: transform 0.5s var(--spring);
+      z-index: 200;
+      box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      max-height: 70%;
+    }
+    .bottom-sheet.open {
+      transform: translateY(0);
+    }
+    
+    .drag-handle {
+      width: 36px;
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      margin: 0 auto 20px;
+    }
+    
+    /* Result Content */
+    .result-content {
+      flex: 1;
+      overflow-y: auto;
+      padding-bottom: 24px;
+    }
+    .result-content::-webkit-scrollbar { display: none; }
+    
+    .result-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      background: var(--accent-muted);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .result-title {
+      font-family: var(--font-display);
+      font-size: 24px;
+      color: var(--fg);
+      margin-bottom: 16px;
+      line-height: 1.2;
+    }
+    
+    .parsed-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .parsed-text {
+      font-family: var(--font-display);
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--fg);
+    }
+    .parsed-equation {
+      font-family: 'Times New Roman', serif;
+      font-size: 22px;
+      text-align: center;
+      margin: 16px 0;
+      font-style: italic;
+    }
+    
+    .action-row {
+      display: flex;
+      gap: 12px;
+    }
+    .btn {
+      flex: 1;
+      height: 48px;
+      border-radius: 24px;
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.2s var(--spring);
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface-alt); color: var(--fg); border: 1px solid var(--border); }
+
+    /* Error State */
+    .error-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 24px 0;
+    }
+    .error-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 28px;
+      background: oklch(95% 0.05 25);
+      color: var(--error);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .error-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+    .error-desc {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 24px;
+      padding: 0 16px;
+    }
+    .btn-error { background: var(--error); color: #fff; }
+
+    /* SVG Icons */
+    svg { display: block; }
+  </style>
+</head>
+<body>
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { motion, AnimatePresence } = window.Motion;
+
+    // SVG Icons
+    const BackIcon = () => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+    );
+    const FlashIcon = () => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+      </svg>
+    );
+    const ErrorIcon = () => (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+    );
+
+    const ScannerApp = () => {
+      // States: 'scanning', 'processing', 'populated', 'error'
+      const [appState, setAppState] = useState('scanning');
+
+      const handleCapture = () => {
+        if (appState !== 'scanning') return;
+        setAppState('processing');
+        // Auto-advance for demonstration if not controlled externally
+        setTimeout(() => {
+          if (Math.random() > 0.2) {
+            setAppState('populated');
+          } else {
+            setAppState('error');
+          }
+        }, 1500);
+      };
+
+      return (
+        <>
+          {/* External Tweaks Panel */}
+          <div className="tweaks-panel">
+            <h3>UX States</h3>
+            {['scanning', 'processing', 'populated', 'error'].map(state => (
+              <button 
+                key={state}
+                className={`tweak-btn ${appState === state ? 'active' : ''}`}
+                onClick={() => setAppState(state)}
+              >
+                {state.charAt(0).toUpperCase() + state.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <div className="device-frame">
+            {/* Viewfinder Background */}
+            <div className={`viewfinder-bg ${appState === 'populated' || appState === 'error' ? 'blurred' : ''}`}></div>
+            
+            <div className="dynamic-island"></div>
+            
+            <div className="status-bar">
+              <span>9:41</span>
+              <div className="status-icons">
+                <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor">
+                  <path d="M5.5 8.5a3 3 0 11-6 0 3 3 0 016 0zm4.5 0a3 3 0 11-6 0 3 3 0 016 0zm4.5 0a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor">
+                  <path d="M1 11h16a1 1 0 001-1V2a1 1 0 00-1-1H1a1 1 0 00-1 1v8a1 1 0 001 1zm7-8h8v6H8V3z"/>
+                </svg>
+              </div>
+            </div>
+
+            <div className="app-root">
+              <div className="scanner-header">
+                <button className="icon-btn" aria-label="Back"><BackIcon /></button>
+                <button className="icon-btn" aria-label="Toggle Flash"><FlashIcon /></button>
+              </div>
+
+              <div className={`brackets-container ${appState === 'processing' ? 'processing' : ''}`}>
+                <div className={`bracket-box ${appState === 'scanning' ? 'scanner-active' : ''} ${appState === 'processing' ? 'processing' : ''}`}>
+                  <div className="corner tl"></div>
+                  <div className="corner tr"></div>
+                  <div className="corner bl"></div>
+                  <div className="corner br"></div>
+                  <div className="laser-line"></div>
+                  
+                  {appState === 'scanning' && (
+                    <div className="instruction-text">Align text within frame</div>
+                  )}
+                  {appState === 'processing' && (
+                    <div className="instruction-text">Extracting text...</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="scanner-footer">
+                <div className="gallery-preview"></div>
+                
+                <div 
+                  className={`capture-ring ${appState === 'processing' ? 'processing' : ''}`}
+                  onClick={handleCapture}
+                >
+                  <div className="capture-btn"></div>
+                </div>
+                
+                <div className="mode-selector">
+                  <span className="mode-item active">Scan</span>
+                  <span className="mode-item">Math</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Sheet Drawer */}
+            <div className={`bottom-sheet ${appState === 'populated' || appState === 'error' ? 'open' : ''}`}>
+              <div className="drag-handle"></div>
+              
+              <div className="result-content">
+                {appState === 'populated' && (
+                  <div>
+                    <span className="result-badge">Math Expression</span>
+                    <h2 className="result-title">Quadratic Equation</h2>
+                    
+                    <div className="parsed-block">
+                      <div className="parsed-equation">
+                        x = (-b ± √(b² - 4ac)) / 2a
+                      </div>
+                    </div>
+                    
+                    <div className="action-row">
+                      <button className="btn btn-secondary" onClick={() => setAppState('scanning')}>Retake</button>
+                      <button className="btn btn-primary">Solve with Tutor</button>
+                    </div>
+                  </div>
+                )}
+                
+                {appState === 'error' && (
+                  <div className="error-container">
+                    <div className="error-icon"><ErrorIcon /></div>
+                    <h2 className="error-title">Couldn't read text</h2>
+                    <p className="error-desc">The image was too blurry or didn't contain readable text. Ensure good lighting and try again.</p>
+                    <div className="action-row" style={{width: '100%'}}>
+                      <button className="btn btn-error" onClick={() => setAppState('scanning')}>Try Again</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="home-indicator"></div>
+          </div>
+        </>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ScannerApp />);
+  </script>
+</body>
+</html>

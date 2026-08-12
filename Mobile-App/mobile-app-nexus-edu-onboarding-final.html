@@ -1,0 +1,477 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexusEdu Onboarding</title>
+  <style>
+    :root {
+      /* Modern Minimal */
+      --bg: oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg: oklch(18% 0.012 250);
+      --muted: oklch(54% 0.012 250);
+      --border: oklch(92% 0.005 250);
+      --accent: oklch(58% 0.18 255); 
+      
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      
+      --radius: 12px;
+      --timing: 150ms;
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Device Frame */
+    .device {
+      width: 390px;
+      height: 844px;
+      background: var(--surface);
+      border-radius: 48px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 0 0 12px oklch(15% 0 0), 0 24px 48px -12px rgba(0,0,0,0.2);
+    }
+
+    /* Dynamic Island & Status Bar */
+    .status-bar {
+      height: 54px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      font-size: 15px;
+      font-weight: 600;
+      z-index: 100;
+      position: relative;
+    }
+    
+    .island {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120px;
+      height: 36px;
+      background: #000;
+      border-radius: 18px;
+    }
+    
+    .status-icons {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    /* Layouts */
+    .screen {
+      height: calc(100% - 54px);
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      position: relative;
+    }
+
+    /* Home Indicator */
+    .home-indicator {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 134px;
+      height: 5px;
+      background: var(--fg);
+      border-radius: 100px;
+      z-index: 100;
+    }
+
+    /* Typography */
+    h1 {
+      font-family: var(--font-display);
+      font-size: 32px;
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    p.subtitle {
+      font-size: 16px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 32px;
+    }
+
+    /* Forms */
+    .form-group {
+      margin-bottom: 24px;
+      position: relative;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 8px;
+    }
+
+    input {
+      width: 100%;
+      height: 48px; /* Touch target */
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 16px;
+      font-size: 16px;
+      font-family: var(--font-body);
+      background: var(--surface);
+      color: var(--fg);
+      transition: all var(--timing) var(--ease);
+      appearance: none;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px oklch(from var(--accent) l c h / 0.15);
+    }
+
+    input.error {
+      border-color: oklch(60% 0.2 25);
+    }
+
+    .error-msg {
+      font-size: 13px;
+      color: oklch(60% 0.2 25);
+      margin-top: 6px;
+      display: none;
+    }
+    
+    input.error + .error-msg {
+      display: block;
+    }
+
+    /* Buttons */
+    .cta-container {
+      margin-top: auto;
+      padding-bottom: 24px;
+    }
+
+    button {
+      width: 100%;
+      height: 52px; /* Large tap target */
+      background: var(--fg);
+      color: var(--bg);
+      border: none;
+      border-radius: 26px; /* Pill */
+      font-size: 16px;
+      font-weight: 600;
+      font-family: var(--font-body);
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      transition: all var(--timing) var(--ease);
+    }
+
+    button:active {
+      transform: scale(0.98);
+      background: oklch(10% 0 0);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 4px;
+    }
+
+    /* Loading Spinner */
+    .spinner {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 2px solid oklch(100% 0 0 / 0.3);
+      border-top-color: var(--bg);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    button.loading {
+      pointer-events: none;
+      background: var(--muted);
+    }
+
+    button.loading .spinner {
+      display: block;
+    }
+
+    button.loading .btn-text {
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Option cards */
+    .option-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    
+    .option-card {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      transition: all var(--timing) var(--ease);
+      cursor: pointer;
+    }
+    
+    .option-card:hover {
+      border-color: var(--muted);
+    }
+    
+    .option-card[aria-selected="true"] {
+      border-color: var(--accent);
+      background: oklch(from var(--accent) l c h / 0.05);
+    }
+    
+    .option-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+    }
+    
+    .option-text h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .option-text p {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    
+    /* Progress */
+    .progress-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 32px;
+    }
+    
+    .progress-segment {
+      flex: 1;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+    }
+    
+    .progress-segment.active {
+      background: var(--fg);
+    }
+  </style>
+</head>
+<body>
+  <div class="device">
+    <div class="status-bar">
+      <span>9:41</span>
+      <div class="island"></div>
+      <div class="status-icons">
+        <svg width="18" height="12" viewBox="0 0 18 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 9.5L1.5 10H16.5L17 9.5L9 1.5L1 9.5Z" fill="currentColor"/>
+        </svg>
+        <svg width="16" height="12" viewBox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="16" height="12" rx="2" fill="currentColor"/>
+        </svg>
+      </div>
+    </div>
+    
+    <!-- Step 1 -->
+    <div class="screen" id="step1">
+      <div class="progress-bar" role="progressbar" aria-valuenow="1" aria-valuemin="1" aria-valuemax="2">
+        <div class="progress-segment active"></div>
+        <div class="progress-segment"></div>
+      </div>
+      
+      <h1 data-od-id="heading-goals">Your learning goals</h1>
+      <p class="subtitle" data-od-id="subtitle-goals">Select a focus area to personalize your study plan and spaced repetition intervals.</p>
+      
+      <div class="option-grid" role="radiogroup" aria-label="Learning goals" data-od-id="goals-list">
+        <div class="option-card" role="radio" aria-checked="false" tabindex="0" onclick="selectOption(this)" data-od-id="goal-academic">
+          <div class="option-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+          </div>
+          <div class="option-text">
+            <h3>Academic Coursework</h3>
+            <p>University or high school subjects</p>
+          </div>
+        </div>
+        
+        <div class="option-card" role="radio" aria-checked="false" tabindex="0" onclick="selectOption(this)" data-od-id="goal-professional">
+          <div class="option-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <div class="option-text">
+            <h3>Professional Certification</h3>
+            <p>IT, medical, or legal board exams</p>
+          </div>
+        </div>
+        
+        <div class="option-card" role="radio" aria-checked="false" tabindex="0" onclick="selectOption(this)" data-od-id="goal-language">
+          <div class="option-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <div class="option-text">
+            <h3>Language Acquisition</h3>
+            <p>Vocabulary and grammar retention</p>
+          </div>
+        </div>
+      </div>
+      
+      <div class="cta-container">
+        <button id="nextBtn" onclick="goToStep2()" data-od-id="continue-button">
+          <span class="btn-text">Continue</span>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Step 2 -->
+    <div class="screen" id="step2" style="display: none;">
+      <div class="progress-bar" role="progressbar" aria-valuenow="2" aria-valuemin="1" aria-valuemax="2">
+        <div class="progress-segment active"></div>
+        <div class="progress-segment active"></div>
+      </div>
+      
+      <h1 data-od-id="heading-account">Almost ready</h1>
+      <p class="subtitle" data-od-id="subtitle-account">Create an account to sync your study history across devices.</p>
+      
+      <form id="signupForm" novalidate data-od-id="signup-form">
+        <div class="form-group">
+          <label for="email">Email address</label>
+          <input type="email" id="email" placeholder="name@example.com" required autocomplete="email" aria-describedby="email-error" data-od-id="input-email">
+          <div id="email-error" class="error-msg" role="alert">Please enter a valid email address.</div>
+        </div>
+        
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Min. 8 characters" required autocomplete="new-password" aria-describedby="password-error" data-od-id="input-password">
+          <div id="password-error" class="error-msg" role="alert">Password must be at least 8 characters.</div>
+        </div>
+        
+        <div class="cta-container" style="margin-top: 120px;">
+          <button type="submit" id="submitBtn" data-od-id="submit-button">
+            <span class="btn-text">Create account</span>
+            <div class="spinner"></div>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="home-indicator"></div>
+  </div>
+
+  <script>
+    // State logic & interaction coverage
+    function selectOption(element) {
+      document.querySelectorAll('.option-card').forEach(card => {
+        card.setAttribute('aria-checked', 'false');
+        card.removeAttribute('aria-selected');
+      });
+      element.setAttribute('aria-checked', 'true');
+      element.setAttribute('aria-selected', 'true');
+    }
+    
+    function goToStep2() {
+      const selected = document.querySelector('.option-card[aria-selected="true"]');
+      if (!selected) return; // Silent guard, in a real app we'd prompt the user
+      
+      document.getElementById('step1').style.display = 'none';
+      document.getElementById('step2').style.display = 'flex';
+      document.getElementById('email').focus();
+    }
+    
+    // Strict form validation on blur
+    const emailInput = document.getElementById('email');
+    const pwdInput = document.getElementById('password');
+    
+    emailInput.addEventListener('blur', () => {
+      if (emailInput.value && !emailInput.value.includes('@')) {
+        emailInput.classList.add('error');
+        emailInput.setAttribute('aria-invalid', 'true');
+      } else {
+        emailInput.classList.remove('error');
+        emailInput.removeAttribute('aria-invalid');
+      }
+    });
+    
+    pwdInput.addEventListener('blur', () => {
+      if (pwdInput.value && pwdInput.value.length < 8) {
+        pwdInput.classList.add('error');
+        pwdInput.setAttribute('aria-invalid', 'true');
+      } else {
+        pwdInput.classList.remove('error');
+        pwdInput.removeAttribute('aria-invalid');
+      }
+    });
+    
+    // Form submit with loading state simulation
+    document.getElementById('signupForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      
+      // Re-validate fields on submission attempt
+      let valid = true;
+      if (!emailInput.value.includes('@')) {
+        emailInput.classList.add('error');
+        valid = false;
+      }
+      if (pwdInput.value.length < 8) {
+        pwdInput.classList.add('error');
+        valid = false;
+      }
+      
+      if (!valid) return;
+      
+      const btn = document.getElementById('submitBtn');
+      btn.classList.add('loading');
+      btn.setAttribute('aria-busy', 'true');
+      
+      // Simulate network latency (state coverage rules)
+      setTimeout(() => {
+        btn.classList.remove('loading');
+        btn.removeAttribute('aria-busy');
+        
+        btn.innerHTML = '<span class="btn-text">Account created!</span>';
+        btn.style.background = 'oklch(58% 0.18 255)';
+        btn.style.color = '#fff';
+      }, 1500);
+    });
+  </script>
+</body>
+</html>
