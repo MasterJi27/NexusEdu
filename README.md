@@ -1,6 +1,6 @@
 # NexusEdu: Advanced AI Learning Ecosystem
 
-NexusEdu is an AI-powered education app for Indian students — CBSE, ICSE, JEE, NEET, NCERT solutions and 60+ AI features. The Flutter app talks to an Express + Prisma backend that proxies all AI calls (Groq), tracks every token, enforces daily AI quotas and rate limits.
+NexusEdu is an AI-powered education app for Indian students — CBSE, ICSE, JEE, NEET, NCERT solutions and 60+ AI features. The Flutter app talks to an Express + Prisma backend that proxies all AI calls (Groq), tracks every token, enforces daily AI quotas and rate limits.     https://play.google.com/store/apps/details?id=com.nexus.edu
 
 ## Architecture
 
