@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
@@ -15,22 +17,12 @@ model User {
   xp               Int      @default(0)
   streak           Int      @default(0)
   photoUrl         String?
-  
-  // Government Compliance / PII fields
-  phoneNumber      String?
-  dateOfBirth      DateTime?
-  guardianName     String?
-  guardianPhone    String?
-  consentGiven     Boolean  @default(false)
-  
-  // AI Training Data / Demographics
+
+  // Profile / Demographics
   schoolBoard      String?
   gradeLevel       String?
-  learningStyle    String?  // visual, auditory, kinesthetic
   weakSubjects     String[] // array of subjects
   strongSubjects   String[]
-  averageAttentionSpan Int? // in minutes
-  preferredLanguage String? @default("en")
 
   lastLoginAt      DateTime?
   createdAt        DateTime @default(now())
@@ -38,10 +30,43 @@ model User {
 
   // Relationships
   loginLogs        LoginLog[]
+  deviceSessions   DeviceSession[]
   activityLogs     ActivityLog[]
   coursesTaught    Course[]       @relation("InstructorCourses")
   submissions      Submission[]
-  courseEnrollments CourseEnrollment[]
+  discussions      Discussion[]
+  replies          Reply[]
+  teacherNotes     TeacherNote[]
+  parentLinks      ParentLink[] @relation("ParentLinks")
+  studentLinks     ParentLink[] @relation("StudentLinks")
+  aiUsageLogs      AiUsageLog[]
+  aiTokenBucket    AiTokenBucket?
+  classTaskSubmissions ClassTaskSubmission[] @relation("ClassTaskSubmissions")
+  notifications         Notification[]       @relation("Notifications")
+  passwordResetTokens PasswordResetToken[]
+
+  // Attendance
+  sectionsTaught      Section[]           @relation("TeacherSections")
+  enrollments         Enrollment[]        @relation("StudentEnrollments")
+  sessionsOpened      AttendanceSession[] @relation("TeacherAttendanceSessions")
+  attendanceRecords   AttendanceRecord[]  @relation("StudentAttendanceRecords")
+  studentNotes        StudentNote[]
+}
+
+model DeviceSession {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId   String
+  deviceName String?
+  userAgent  String?
+  ipAddress  String?
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, deviceId])
+  @@index([userId, revokedAt, lastSeenAt])
 }
 
 model LoginLog {
@@ -72,21 +97,9 @@ model Course {
   instructor   User     @relation("InstructorCourses", fields: [instructorId], references: [id])
   
   modules      Module[]
-  enrollments  CourseEnrollment[]
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-}
-
-model CourseEnrollment {
-  id           String   @id @default(uuid())
-  userId       String
-  courseId     String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  enrolledAt   DateTime @default(now())
-
-  @@unique([userId, courseId])
 }
 
 model Module {
@@ -131,6 +144,265 @@ model Assignment {
   updatedAt    DateTime @updatedAt
 }
 
+model Discussion {
+  id           String   @id @default(uuid())
+  courseId     String
+  title        String
+  content      String
+  authorId     String
+  author       User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  replies      Reply[]
+
+  createdAt    DateTime @default(now())
+}
+
+model Reply {
+  id           String   @id @default(uuid())
+  content      String
+  authorId     String
+  author       User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  discussionId String
+  discussion   Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+}
+
+// Teacher-authored study notes, targeted at a grade + subject rather than a
+// formal Course/Module, so a teacher can publish to "Class 10 - Physics"
+// without first building out a full course structure.
+model TeacherNote {
+  id           String   @id @default(uuid())
+  title        String
+  content      String
+  gradeLevel   String
+  subject      String
+  topic        String?
+  isPublished  Boolean  @default(true)
+
+  teacherId    String
+  teacher      User     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([gradeLevel, subject])
+}
+
+// A student's own notes ("My Notes" tab). Synced from the app so notes made
+// on any device land in the same account; the app keeps a local mirror for
+// offline use.
+model StudentNote {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+// Links a parent account to a student account so the parent dashboard can
+// show that student's real progress instead of invented numbers.
+// Consent flow: a parent requests a link (status "pending"), the student
+// approves or rejects it. Only approved links expose the student's data.
+model ParentLink {
+  id        String   @id @default(uuid())
+  parentId  String
+  studentId String
+  status    String   @default("pending") // pending, approved, rejected
+  parent    User     @relation("ParentLinks", fields: [parentId], references: [id], onDelete: Cascade)
+  student   User     @relation("StudentLinks", fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentId, studentId])
+  @@index([studentId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Attendance
+//
+// A Section is a teacher's own class roster (e.g. "Class 10-B"). Deliberately
+// no separate School/tenant model yet — that is the natural phase-2 upgrade
+// once there is a real institutional pilot asking for multi-school isolation
+// (see the plan doc); building it now would be designing ahead of a need we
+// cannot yet observe.
+//
+// AttendanceSession carries a short-lived rotating code (HMAC hash stored,
+// never the plaintext) so a screenshot of the code is useless once it
+// expires. The teacher pins the session to their classroom coordinates
+// (lat/lng/radiusMeters); a student's mark is only accepted when their
+// device-reported position falls inside that fence — a forwarded code is
+// worthless to a friend who is not in the room. AttendanceRecord's real
+// fraud guard is the unique constraint on (sessionId, studentId), not the
+// application code path — a retried or double-tapped request can never
+// create a second row for the same student in the same session, even under
+// concurrent load. The distance/marked-location on a record is the audit
+// trail that makes a disputed mark resolvable later.
+// ---------------------------------------------------------------------------
+
+model Section {
+  id         String   @id @default(uuid())
+  teacherId  String
+  teacher    User     @relation("TeacherSections", fields: [teacherId], references: [id], onDelete: Cascade)
+  label      String   // "Class 10-B"
+  gradeLevel String
+  subject    String?
+
+  // Classroom join code (6 chars, no ambiguous characters). Students join the
+  // section by typing this or scanning the QR the teacher shows; it is the
+  // student-facing "classroom" identity, unlike AttendanceSession.code which
+  // rotates every 25s. Null only for pre-QR sections; GET /sections backfills
+  // lazily.
+  inviteCode String?  @unique
+  createdAt  DateTime @default(now())
+
+  enrollments        Enrollment[]
+  attendanceSessions AttendanceSession[]
+  classTasks         ClassTask[]
+
+  @@index([teacherId])
+}
+
+model Enrollment {
+  id         String   @id @default(uuid())
+  sectionId  String
+  section    Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    User     @relation("StudentEnrollments", fields: [studentId], references: [id], onDelete: Cascade)
+  rollNumber String?
+  createdAt  DateTime @default(now())
+
+  @@unique([sectionId, studentId])
+  @@index([studentId])
+}
+
+// Google-Classroom-style classwork: tasks hang off a Section (not a Course
+// module), so every student in the section sees the same stream. Teachers
+// create tasks; students mark them done; submissions carry a timestamp for
+// honesty checks.
+model ClassTask {
+  id          String   @id @default(uuid())
+  sectionId   String
+  section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueDate     DateTime?
+  points      Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  submissions ClassTaskSubmission[]
+
+  @@index([sectionId, createdAt])
+}
+
+model ClassTaskSubmission {
+  id          String   @id @default(uuid())
+  taskId      String
+  task        ClassTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User     @relation("ClassTaskSubmissions", fields: [studentId], references: [id], onDelete: Cascade)
+  status      String   @default("pending") // pending | done
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([taskId, studentId])
+  @@index([studentId])
+}
+
+// In-app notifications: teacher posts a syllabus/AI note or a task -> every
+// enrolled student of that section gets one. Read/unread drives the badge.
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation("Notifications", fields: [userId], references: [id], onDelete: Cascade)
+  type      String    // teacher_note | class_task
+  title     String
+  body      String?
+  link      String?   // in-app route, e.g. /classroom
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+model AttendanceSession {
+  id            String    @id @default(uuid())
+  sectionId     String
+  section       Section   @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subject       String
+  teacherId     String
+  teacher       User      @relation("TeacherAttendanceSessions", fields: [teacherId], references: [id], onDelete: Cascade)
+  date          DateTime  @default(now()) @db.Date
+  codeHash      String    // HMAC-SHA256 of the current rotating code; the plaintext is never stored
+  codeExpiresAt DateTime
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+
+  // Geo-fence: classroom anchor set by the teacher when the session opens.
+  // Null on pre-fence sessions (created before this shipped); those accept
+  // any location, so the fence is opt-in per session but always recorded.
+  lat          Float?
+  lng          Float?
+  radiusMeters Int?
+
+  records AttendanceRecord[]
+
+  @@index([sectionId, date])
+  @@index([teacherId, date])
+}
+
+model AttendanceRecord {
+  id              String    @id @default(uuid())
+  sessionId       String
+  session         AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId       String
+  student         User      @relation("StudentAttendanceRecords", fields: [studentId], references: [id], onDelete: Cascade)
+  status          String    // present, absent, late, leave
+  markedVia       String    // code, teacher_override
+  idempotencyKey  String    @unique
+  clientMarkedAt  DateTime?
+  serverMarkedAt  DateTime  @default(now())
+
+  // Where the student's device said it was when the mark landed, and how far
+  // that was from the classroom anchor. Stored for every mark (in or out of
+  // zone) so an "out of zone" rejection is provable after the fact.
+  markedLat      Float?
+  markedLng      Float?
+  distanceMeters Float?
+  // Device-reported mock-location flag at the time of marking. Null means the
+  // client never sent one (older build), which is "unknown" rather than clean.
+  // Kept even though a mocked fix is refused up front, so an unfenced session
+  // still leaves a trace worth auditing.
+  wasMockedFix   Boolean?
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, serverMarkedAt])
+}
+
+// Append-only trail for anything that changes an attendance record outside
+// the student's own code-verified mark: a teacher override, a session
+// open/close. Not cryptographically hash-chained yet (see the plan doc for
+// that upgrade) — this is the minimum a school would ask to see in a dispute.
+model AttendanceAudit {
+  id        String   @id @default(uuid())
+  sessionId String?
+  recordId  String?
+  action    String   // session_opened, session_closed, marked, overridden
+  actorId   String
+  reason    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
 model Submission {
   id           String   @id @default(uuid())
   content      String?
@@ -146,4 +418,88 @@ model Submission {
   
   submittedAt  DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// Per-call AI token usage. Every Groq/Wolfram call is recorded here so we can
+// answer "kitne tokens aa rahe hain, kya aa raha hai, kya nahi" per user and
+// enforce a daily AI quota (business logic, not just rate limiting).
+model AiUsageLog {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature           String   // chat, solve-math, tutor-stream
+  model             String
+  endpoint          String   // groq, wolfram
+  promptTokens      Int      @default(0)
+  completionTokens  Int      @default(0)
+  totalTokens       Int      @default(0)
+  latencyMs         Int?
+  status            String   @default("success") // success, error
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, feature, createdAt])
+}
+
+// Continuous-refill token bucket: the user's AI budget as a smooth
+// per-second refill instead of fixed windows. The daily quota is a classic
+// bucket (capacity = one day's budget, refill = capacity/86400 per second),
+// so there is nothing to game at window edges: tokens accrue constantly and
+// bursts can never exceed capacity. Requests live in a second small bucket
+// in the same row (capacity 30, ~1 per 15 s) so a burst of calls can't burn
+// the budget in seconds either.
+// Rows are created lazily on first use and never need a midnight reset —
+// LEAST() clamps the balance at capacity forever.
+model AiTokenBucket {
+  userId            String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokens            Float    @default(200000)
+  capacity          Float    @default(200000)
+  refillRate        Float    @default(2.3148148148148147) // capacity / 86400
+  requests          Int      @default(30)
+  requestCapacity   Int      @default(30)
+  requestRefillRate Float    @default(0.06666666666666667) // 1 per 15 s
+  lastRefillAt      DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Short-lived password reset tokens (30 min expiry) so forgot-password is a
+// real flow end-to-end instead of a client-side stub.
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+// RAG knowledge base. Chunks of indexed study material (teacher notes today)
+// with their embedding vectors. userId is null for globally-shared content;
+// retrieval filters to the caller's own chunks plus shared ones. The column
+// type vector(2000) comes from the pgvector extension (see
+// backend/src/services/ragService.ts's EMBEDDING_DIMENSIONS, which is what
+// actually creates/resizes this column at boot via ensureRagSchema — this
+// declaration is documentation only, kept in sync by hand) and is queried
+// with raw SQL (<=> cosine distance) because Prisma has no vector query
+// support.
+model KnowledgeChunk {
+  id         String   @id @default(uuid())
+  userId     String?
+  sourceType String   // teacher_note, course_lesson, discussion, discussion_reply
+  sourceId   String
+  title      String
+  content    String
+  gradeLevel String?
+  subject    String?
+  embedding  Unsupported("vector(2000)")?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([sourceType, sourceId])
+  @@index([gradeLevel, subject])
 }

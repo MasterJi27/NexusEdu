@@ -1,41 +1,57 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Nexus Edu API — Express + Prisma backend with AI proxy, JWT auth, rate limiting and token usage tracking",
   "main": "index.js",
-  "directories": {
-    "test": "tests"
+  "engines": {
+    "node": ">=20.0.0"
   },
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
-    "postinstall": "tsc && prisma generate",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node startup.js",
+    "postinstall": "node -e \"try{if(require('fs').existsSync('prisma/schema.prisma')){require('child_process').execSync('npx prisma generate',{stdio:'inherit'})}else{console.log('prisma generate skipped: no schema in build dir')}}catch(e){console.warn('prisma generate skipped:',e.message)}\"",
+    "prisma:generate": "prisma generate",
+    "composio:connect": "node scripts/composio-connect.cjs",
+    "seed:rag": "ts-node seed/seedRag.ts",
+    "test": "echo \"No test suite configured yet\""
   },
-  "keywords": [],
+  "keywords": [
+    "edtech",
+    "ai",
+    "education"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "@azure/storage-blob": "^12.33.0",
-    "@prisma/client": "^7.8.0",
-    "applicationinsights": "^3.15.1",
-    "bcrypt": "^6.0.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "multer": "^2.2.0"
-  },
-  "devDependencies": {
-    "@types/bcrypt": "^6.0.0",
+    "@composio/core": "^0.15.0",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^26.1.0",
-    "prisma": "^7.8.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.2.0",
+    "@types/nodemailer": "^8.0.1",
+    "applicationinsights": "^3.15.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "google-auth-library": "^11.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.5",
+    "pg": "^8.16.3",
+    "prisma": "^7.9.1",
+    "typescript": "^7.0.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "prisma": "^7.9.1",
+    "ts-node": "^10.9.2"
   }
 }

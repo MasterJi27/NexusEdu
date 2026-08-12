@@ -1,54 +1,77 @@
-import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Router, Response } from 'express';
+import { z } from 'zod';
+import prisma from '../lib/prisma';
+import { authenticate, AuthRequest } from '../middlewares/auth';
+import { requireRole } from '../middlewares/error';
+import { validateBody } from '../middlewares/validate';
+
+// Never return the full User row from a join: password hashes must never
+// leave the server. Only identity fields are safe to expose.
+const instructorSelect = {
+  id: true,
+  name: true,
+  photoUrl: true,
+};
 
 const router = Router();
-const prisma = new PrismaClient({});
 
 // Get all courses
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req, res: Response) => {
   try {
     const courses = await prisma.course.findMany({
-      include: { instructor: true }
+      include: { instructor: { select: instructorSelect } }
     });
     res.json(courses);
   } catch (error) {
+    console.error('Fetch courses error:', error);
     res.status(500).json({ error: 'Failed to fetch courses' });
   }
 });
 
 // Get a single course by ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req, res: Response) => {
   try {
     const course = await prisma.course.findUnique({
-      where: { id: req.params.id as string },
+      where: { id: req.params.id },
       include: {
         modules: {
           include: { lessons: true, assignments: true }
         },
-        instructor: true
+        instructor: { select: instructorSelect }
       }
     });
-    if (!course) return res.status(404).json({ error: 'Course not found' });
+    if (!course) {
+      res.status(404).json({ error: 'Course not found' });
+      return;
+    }
     res.json(course);
   } catch (error) {
+    console.error('Fetch course error:', error);
     res.status(500).json({ error: 'Failed to fetch course' });
   }
 });
 
-// Create a new course (Teacher/Admin only - auth middleware needed)
-router.post('/', async (req: Request, res: Response) => {
+const createCourseSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  thumbnailUrl: z.string().url().optional(),
+});
+
+// Create a new course (Teacher/Admin only)
+router.post('/', authenticate, requireRole('teacher', 'admin'), validateBody(createCourseSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { title, description, instructorId, thumbnailUrl } = req.body;
+    const { title, description, thumbnailUrl } = req.body;
     const course = await prisma.course.create({
       data: {
         title,
         description,
         thumbnailUrl,
-        instructorId
+        instructorId: req.user!.id,
       }
     });
     res.status(201).json(course);
   } catch (error) {
+    console.error('Create course error:', error);
     res.status(500).json({ error: 'Failed to create course' });
   }
 });
