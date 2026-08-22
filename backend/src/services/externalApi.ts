@@ -32,6 +32,11 @@ export function requireConfig<T extends Record<string, string | undefined>>(
  * site in azureAi.ts. Returns the parsed body on success, or null after
  * already writing the error response on failure.
  */
+// Applied whenever a caller doesn't already pass its own `signal`, so a
+// provider that accepts the connection but never responds can't hold the
+// request (and its rate-limit slot) open indefinitely.
+const DEFAULT_EXTERNAL_TIMEOUT_MS = 30_000;
+
 export async function fetchJsonOrRespondError(
   url: string,
   options: RequestInit,
@@ -39,7 +44,10 @@ export async function fetchJsonOrRespondError(
   label: string,
 ): Promise<any | null> {
   try {
-    const r = await fetch(url, options);
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(DEFAULT_EXTERNAL_TIMEOUT_MS),
+      ...options,
+    });
     const data = await r.json().catch(() => null);
     if (!r.ok) {
       const detail = (data as any)?.error?.message ?? JSON.stringify(data ?? {}).slice(0, 300);

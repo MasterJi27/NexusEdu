@@ -442,7 +442,7 @@ class AttendanceBleHost {
         characteristicId: AttendanceBleConstants.markChunk(0),
         value: utf8.encode(jsonEncode({
           'ok': error == null,
-          'error': ?error,
+          if (error != null) 'error': error,
         })),
       );
     } catch (_) {}

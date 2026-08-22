@@ -6,5 +6,6 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     globals: false,
     setupFiles: ['./test/setup.ts'],
+    coverage: { provider: 'v8', thresholds: { lines: 70, branches: 60 } },
   },
 });

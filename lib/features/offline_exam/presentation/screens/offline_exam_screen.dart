@@ -10,12 +10,14 @@ import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/services/sync_queue_service.dart';
 import 'package:nexus_edu/core/theme/app_theme.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/features/offline_exam/data/exam_ble.dart';
 import 'package:nexus_edu/features/offline_exam/data/exam_client.dart';
 import 'package:nexus_edu/features/offline_exam/data/exam_server.dart';
 import 'package:nexus_edu/features/offline_exam/domain/offline_exam_models.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_filter_chips.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
 import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
@@ -233,23 +235,10 @@ class _TeacherExamViewState extends State<_TeacherExamView> {
           const SizedBox(height: AppSpace.md),
           Text('Questions', style: ctx.text.labelMedium?.copyWith(color: t.inkMuted)),
           const SizedBox(height: AppSpace.xs),
-          Wrap(
-            spacing: AppSpace.xs,
-            runSpacing: AppSpace.xs,
-            children: [4, 8, 12, 16].map((n) {
-              final selected = _questionCount == n;
-              return ChoiceChip(
-                label: Text('$n'),
-                selected: selected,
-                labelStyle: ctx.text.labelSmall?.copyWith(
-                  color: selected ? t.onPrimary : t.ink,
-                ),
-                selectedColor: t.primary,
-                backgroundColor: t.surfaceAlt,
-                side: BorderSide(color: selected ? t.primary : t.border),
-                onSelected: (_) => setState(() => _questionCount = n),
-              );
-            }).toList(),
+          NexusFilterChips<int>(
+            options: const [4, 8, 12, 16],
+            selected: _questionCount,
+            onSelected: (n) => setState(() => _questionCount = n),
           ),
           const SizedBox(height: AppSpace.md),
           NexusButton(
@@ -571,9 +560,7 @@ class _StudentExamViewState extends State<_StudentExamView> {
     final paper = await client.fetchPaper(host, port);
     if (!mounted) return;
     if (paper == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not reach the teacher. Check the IP and hotspot.')),
-      );
+      showErrorSnackBar(context, 'Could not reach the teacher. Check the IP and hotspot.');
       return;
     }
     final submitted = await _runExam(paper, transport: 'hotspot');
@@ -586,9 +573,9 @@ class _StudentExamViewState extends State<_StudentExamView> {
     );
     if (!mounted) return;
     if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Answers saved locally, but the teacher '
-            'could not be reached to submit. Try again while still on the hotspot.')),
+      showErrorSnackBar(
+        context,
+        'Answers saved locally, but the teacher could not be reached to submit. Try again while still on the hotspot.',
       );
       return;
     }
@@ -610,9 +597,7 @@ class _StudentExamViewState extends State<_StudentExamView> {
       'takenAt': attempt.submittedAt.toUtc().toIso8601String(),
     });
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Submitted! You scored ${attempt.score}/${attempt.total}.')),
-      );
+      showSuccessSnackBar(context, 'Submitted! You scored ${attempt.score}/${attempt.total}.');
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
@@ -25,11 +26,7 @@ class _FlashcardDeckScreenState extends State<FlashcardDeckScreen> {
   void _generateFromNotes() async {
     final notes = AppSettings.instance.cachedNotes;
     if (notes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No notes available. Create some notes first.'),
-        ),
-      );
+      showErrorSnackBar(context, 'No notes available. Create some notes first.');
       return;
     }
 
@@ -96,11 +93,7 @@ class _FlashcardDeckScreenState extends State<FlashcardDeckScreen> {
     } catch (_) {
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't generate flashcards. Check your connection and try again."),
-        ),
-      );
+      showErrorSnackBar(context, "Couldn't generate flashcards. Check your connection and try again.");
       return;
     }
     if (!mounted) return;
@@ -110,18 +103,12 @@ class _FlashcardDeckScreenState extends State<FlashcardDeckScreen> {
     try {
       cards = json.decode(result) as List<dynamic>;
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't generate flashcards. Check your connection and try again."),
-        ),
-      );
+      showErrorSnackBar(context, "Couldn't generate flashcards. Check your connection and try again.");
       return;
     }
 
     if (cards.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No flashcards generated.')));
+      showErrorSnackBar(context, 'No flashcards generated.');
       return;
     }
 
@@ -141,13 +128,7 @@ class _FlashcardDeckScreenState extends State<FlashcardDeckScreen> {
     await AppSettings.instance.addFlashcardDeck(deck);
     if (!mounted) return;
     _refresh();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Deck "${deck['name']}" created with ${cardList.length} cards',
-        ),
-      ),
-    );
+    showSuccessSnackBar(context, "Deck '${deck['name']}' created with ${cardList.length} cards");
   }
 
   void _deleteDeck(int index) async {

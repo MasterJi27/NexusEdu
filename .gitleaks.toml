@@ -1,0 +1,83 @@
+# Nexus Edu — gitleaks config
+# Run: gitleaks detect --source . --config .gitleaks.toml --verbose
+# CI: gitleaks detect --no-git --config .gitleaks.toml --redact
+
+title = "nexus_edu gitleaks"
+
+[extend]
+# Use default gitleaks rulesets
+useDefault = true
+
+[allowlist]
+description = "global allowlist for false positives and paths we never scan"
+paths = [
+  '''\.gitleaks\.toml''',
+  '''docs/SECRETS_ROTATION\.md''',
+  '''.*\.example''',
+  '''backend/src/lib/env\.ts''',
+  '''infra/bicep/.*''',
+]
+# Allow example placeholders only — never real entropy strings
+regexes = [
+  '''your_.*_here''',
+  '''change-me.*''',
+  '''example\.com''',
+  '''localhost''',
+  '''REDACTED''',
+]
+# Do not ignore .env files — they must be scanned even though .gitignore ignores them
+# (gitleaks scans untracked files by default with --no-git)
+
+[[rules]]
+id = "nexus-groq-api-key"
+description = "Groq API Key"
+regex = '''gsk_[a-zA-Z0-9]{20,}'''
+tags = ["key", "groq"]
+keywords = ["gsk_"]
+
+[[rules]]
+id = "nexus-openrouter-key"
+description = "OpenRouter API Key"
+regex = '''sk-or-v1-[a-zA-Z0-9]{20,}'''
+tags = ["key", "openrouter"]
+keywords = ["sk-or"]
+
+[[rules]]
+id = "nexus-composio-key"
+description = "Composio API Key"
+regex = '''ak_[a-zA-Z0-9]{15,}'''
+tags = ["key", "composio"]
+keywords = ["ak_"]
+
+[[rules]]
+id = "nexus-gemini-google-key"
+description = "Gemini/Google API Key (generic high-entropy sk-)"
+regex = '''sk-[a-zA-Z0-9_\-]{20,}'''
+tags = ["key", "google", "gemini"]
+keywords = ["sk-"]
+
+[[rules]]
+id = "nexus-azure-openai-speech-key"
+description = "Azure API Key (32+ hex/alpha, often ends with AAABAC...)"
+regex = '''[A-Za-z0-9]{32,}'''
+tags = ["key", "azure"]
+# High entropy check is default; this narrows to env names
+keywords = ["azure", "AZURE_OPENAI", "AZURE_SPEECH"]
+
+[[rules]]
+id = "nexus-agora-certificate"
+description = "Agora App Certificate (32 hex)"
+regex = '''[a-f0-9]{32}'''
+tags = ["key", "agora"]
+keywords = ["agora", "AGORA_APP_CERTIFICATE"]
+
+[[rules]]
+id = "nexus-jwt-secret"
+description = "JWT_SECRET / DATABASE_URL credential"
+regex = '''(JWT_SECRET|DATABASE_URL)\s*=\s*.{8,}'''
+tags = ["secret", "jwt", "db"]
+keywords = ["JWT_SECRET", "DATABASE_URL"]
+
+# Commit message & diff scanning
+[redact]
+# redact secrets in CI logs

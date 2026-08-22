@@ -8,6 +8,7 @@ import 'package:nexus_edu/core/theme/app_theme.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_filter_chips.dart';
 
 const List<String> _boards = ['CBSE', 'ICSE', 'State Board', 'IB', 'Other'];
 
@@ -221,33 +222,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: AppSpace.xl),
           Expanded(
             child: SingleChildScrollView(
-              child: Wrap(
-                spacing: AppSpace.sm,
-                runSpacing: AppSpace.sm,
-                children: options.map((option) {
-                  final isSelected = selected.contains(option);
-                  return ChoiceChip(
-                    label: Text(
-                      option,
-                      style: TextStyle(
-                        color: isSelected ? t.onPrimary : t.ink,
-                        fontWeight: FontWeight.w600,
-                      ),
+              child: multiSelect
+                  ? NexusFilterChips<String>(
+                      options: options,
+                      selected: null,
+                      multiSelected: selected.cast<String>(),
+                      onSelected: onSelect,
+                    )
+                  : NexusFilterChips<String>(
+                      options: options,
+                      selected: selected.isEmpty ? null : selected.first,
+                      onSelected: onSelect,
                     ),
-                    selected: isSelected,
-                    onSelected: (_) => onSelect(option),
-                    selectedColor: t.ink,
-                    backgroundColor: t.surfaceAlt,
-                    side: BorderSide(
-                      color: isSelected ? t.borderStrong : t.border,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpace.sm,
-                      vertical: AppSpace.xs,
-                    ),
-                  );
-                }).toList(),
-              ),
             ),
           ),
         ],

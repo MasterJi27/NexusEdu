@@ -1,8 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -15,12 +19,29 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <!-- Teacher screen sharing (host-only, live class): the Agora SDK
+         (agora_rtc_engine) pulls in io.agora.rtc:full-screen-sharing-special,
+         which merges the FOREGROUND_SERVICE_MEDIA_PROJECTION permission and a
+         mediaProjection foreground service the app starts when the teacher
+         shares their screen. The Play Console foreground-service declaration
+         (mediaProjection) is required for this — see RELEASE.md. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE" />
     <application
         android:label="Nexus Edu"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:networkSecurityConfig="@xml/network_security_config">
+        <!-- Agora's video views render black on Samsung (and some other)
+             devices under Impeller/Vulkan, and the texture layer can throw
+             during live class — the red screen. Skia rendering is the
+             battle-tested path for agora_rtc_engine. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -63,6 +84,10 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
+        <!-- Agora screen-share foreground service comes from the SDK's
+             full-screen-sharing-special AAR (mediaProjection). It is only
+             started when the teacher shares their screen via the system
+             MediaProjection consent dialog. -->
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

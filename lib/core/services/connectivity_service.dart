@@ -17,6 +17,8 @@ class ConnectivityService extends ChangeNotifier {
 
   bool _online = true;
   DateTime? _lastProbe;
+  // P1-09: store periodic poll so it can be cancelled on dispose (was leaked).
+  Timer? _poll;
 
   bool get online => _online;
 
@@ -24,8 +26,23 @@ class ConnectivityService extends ChangeNotifier {
   /// so the banner flips on/off without any screen doing its own polling.
   void start() {
     check();
-    Timer.periodic(const Duration(seconds: 30), (_) => check());
+    _poll?.cancel();
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) => check());
   }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  // AppLifecycle pause handling: polling should be paused when app is in
+  // background to save battery/bandwidth. Wire via WidgetsBindingObserver
+  // or AppLifecycleListener (didChangeAppLifecycleState):
+  //   paused/inactive -> _poll?.cancel()
+  //   resumed -> start()
+  // TODO: add AppLifecycleListener in main.dart or wrap ConnectivityService with
+  // WidgetsBindingObserver to auto-pause/resume _poll.
 
   /// Returns the current verdict, re-probing only when the cached one is
   /// stale. Callers that need a hard answer (the AI gate) await this.

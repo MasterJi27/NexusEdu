@@ -45,6 +45,7 @@ void main() {
     final mark = AttendanceHotspotMark(
       studentId: 'u1',
       clientMarkedAt: DateTime.now(),
+      code: '123456',
       lat: 19.076,
       lng: 72.8777,
     );
@@ -73,6 +74,7 @@ void main() {
       AttendanceHotspotMark(
         studentId: 'u2',
         clientMarkedAt: DateTime.now(),
+        code: '123456',
         lat: 19.0,
         lng: 72.8,
       ),
@@ -85,6 +87,7 @@ void main() {
       AttendanceHotspotMark(
         studentId: 'u3',
         clientMarkedAt: DateTime.now(),
+        code: '123456',
         lat: 19.076,
         lng: 72.8777,
         isMocked: true,
@@ -95,7 +98,11 @@ void main() {
     final noLoc = await client.submitMark(
       '127.0.0.1',
       port,
-      AttendanceHotspotMark(studentId: 'u4', clientMarkedAt: DateTime.now()),
+      AttendanceHotspotMark(
+        studentId: 'u4',
+        clientMarkedAt: DateTime.now(),
+        code: '123456',
+      ),
     );
     expect(noLoc!['error'], 'no_location');
 
@@ -112,7 +119,11 @@ void main() {
     final ack = await client.submitMark(
       '127.0.0.1',
       port,
-      AttendanceHotspotMark(studentId: 'u5', clientMarkedAt: DateTime.now()),
+      AttendanceHotspotMark(
+        studentId: 'u5',
+        clientMarkedAt: DateTime.now(),
+        code: '123456',
+      ),
     );
     expect(ack!['ok'], isTrue);
     expect(server.marks, hasLength(1));

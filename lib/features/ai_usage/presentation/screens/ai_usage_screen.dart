@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 import 'package:nexus_edu/shared/widgets/nexus_section_header.dart';
 import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
@@ -32,18 +34,18 @@ class _AiUsageScreenState extends State<AiUsageScreen> {
       _loading = true;
       _error = null;
     });
-    final result = await SecureApiService().getAiUsage();
+    final result = await SecureApiService().getAiUsageResult();
     if (!mounted) return;
-    if (result['error'] != null) {
+    if (!handleResultError(context, result)) {
       setState(() {
         _loading = false;
-        _error = result['error'].toString();
+        _error = (result as Failure).message;
       });
       return;
     }
     setState(() {
       _loading = false;
-      _data = result;
+      _data = (result as Success<Map<String, dynamic>>).data;
     });
   }
 

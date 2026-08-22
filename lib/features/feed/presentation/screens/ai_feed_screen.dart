@@ -6,6 +6,7 @@ import 'package:nexus_edu/core/theme/app_theme.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/features/feed/presentation/providers/feed_provider.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
+import 'package:nexus_edu/shared/widgets/nexus_filter_chips.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
 class AiFeedScreen extends ConsumerStatefulWidget {
@@ -633,82 +634,26 @@ class _AiFeedScreenState extends ConsumerState<AiFeedScreen> {
             ],
           ),
           if (subjects.isNotEmpty)
-            SizedBox(
-              height: 36,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: subjects.length + 1,
-                separatorBuilder: (_, _) => const SizedBox(width: AppSpace.xs),
-                itemBuilder: (context, i) {
-                  final isAll = i == 0;
-                  final label = isAll ? 'All Subjects' : subjects[i - 1].name;
-                  final isSelected = feedState.selectedSubject == label;
-                  return ChoiceChip(
-                    label: Text(
-                      label,
-                      style: context.text.labelMedium?.copyWith(
-                        color: isSelected ? t.page : t.ink,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    selected: isSelected,
-                    selectedColor: t.ink,
-                    backgroundColor: t.surfaceAlt,
-                    onSelected: (val) {
-                      if (val) {
-                        ref
-                            .read(feedProvider.notifier)
-                            .applySyllabusFilter(
-                              subject: label,
-                              topic: 'All',
-                            );
-                        final videos =
-                            ref.read(feedProvider).asData?.value.videos ??
-                            feedState.videos;
-                        _resetControllers(videos);
-                      }
-                    },
-                  );
-                },
-              ),
+            NexusFilterChips<String>(
+              options: ['All Subjects', ...subjects.map((s) => s.name)],
+              selected: feedState.selectedSubject,
+              onSelected: (label) {
+                ref.read(feedProvider.notifier).applySyllabusFilter(subject: label, topic: 'All');
+                final videos = ref.read(feedProvider).asData?.value.videos ?? feedState.videos;
+                _resetControllers(videos);
+              },
             ),
           if (feedState.selectedSubject != 'All' && topics.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: AppSpace.xs),
-              child: SizedBox(
-                height: 32,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: topics.length + 1,
-                  separatorBuilder: (_, _) => const SizedBox(width: AppSpace.xs),
-                  itemBuilder: (context, i) {
-                    final isAll = i == 0;
-                    final label = isAll ? 'All Topics' : topics[i - 1];
-                    final isSelected = feedState.selectedTopic == label;
-                    return ChoiceChip(
-                      label: Text(
-                        label,
-                        style: context.text.labelSmall?.copyWith(
-                          color: isSelected ? t.page : t.inkMuted,
-                        ),
-                      ),
-                      selected: isSelected,
-                      selectedColor: t.secondary,
-                      backgroundColor: t.surfaceAlt,
-                      onSelected: (val) {
-                        if (val) {
-                          ref
-                              .read(feedProvider.notifier)
-                              .applySyllabusFilter(topic: label);
-                          final videos =
-                              ref.read(feedProvider).asData?.value.videos ??
-                              feedState.videos;
-                          _resetControllers(videos);
-                        }
-                      },
-                    );
-                  },
-                ),
+              child: NexusFilterChips<String>(
+                options: ['All Topics', ...topics],
+                selected: feedState.selectedTopic,
+                onSelected: (label) {
+                  ref.read(feedProvider.notifier).applySyllabusFilter(topic: label);
+                  final videos = ref.read(feedProvider).asData?.value.videos ?? feedState.videos;
+                  _resetControllers(videos);
+                },
               ),
             ),
         ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_filter_chips.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
 import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
 import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
@@ -216,45 +217,17 @@ class _SpacedRepetitionScreenState extends State<SpacedRepetitionScreen> {
             ],
           ),
           const SizedBox(height: AppSpace.sm),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _contexts
-                  .map(
-                    (c) => Padding(
-                      padding: const EdgeInsets.only(right: AppSpace.xs),
-                      child: ChoiceChip(
-                        label: Text(c, style: context.text.labelMedium),
-                        selected: _selectedContext == c,
-                        onSelected: (v) => setState(() => _selectedContext = c),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
+          NexusFilterChips<String>(
+            options: _contexts,
+            selected: _selectedContext,
+            onSelected: (c) => setState(() => _selectedContext = c),
           ),
           const SizedBox(height: AppSpace.xs),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _moods
-                  .map(
-                    (m) => Padding(
-                      padding: const EdgeInsets.only(right: AppSpace.xs),
-                      child: ChoiceChip(
-                        avatar: Icon(m['icon'] as IconData, size: 16),
-                        label: Text(
-                          m['label'] as String,
-                          style: context.text.labelMedium,
-                        ),
-                        selected: _mood == m['value'],
-                        onSelected: (v) =>
-                            setState(() => _mood = m['value'] as String),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
+          NexusFilterChips<String>(
+            options: _moods.map((m) => m['value'] as String).toList(),
+            selected: _mood,
+            onSelected: (v) => setState(() => _mood = v),
+            labelBuilder: (v) => _moods.firstWhere((m) => m['value'] == v)['label'] as String,
           ),
           const SizedBox(height: AppSpace.lg),
           Text('Schedule Overview', style: context.text.titleMedium),

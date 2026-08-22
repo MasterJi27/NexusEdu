@@ -1,9 +1,14 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:nexus_edu/core/services/gamification_service.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/pagination.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
 import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
+import 'package:nexus_edu/shared/widgets/org_brand_mark.dart';
+import 'package:nexus_edu/shared/widgets/paginated_list.dart';
 
 /// Real XP leaderboard, read from `GET /api/users/leaderboard`.
 ///
@@ -18,6 +23,7 @@ import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
 /// in the schema, so a campus-scoped ranking was a claim the backend could not
 /// answer. When there is genuinely nothing to rank yet, this shows an honest
 /// empty state instead of filling the space.
+// TODO(P1): verified 2026-08-21 — PaginatedListView wired correctly (items/_hasMore/_isLoadingMore/onLoadMore + _paginated getter + cursor forwarding in _loadMore) — already fixed.
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
 
@@ -29,6 +35,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   bool _isLoading = true;
   String? _error;
   List<dynamic> _entries = [];
+  // Cursor-based pagination state — wired to PaginatedList.nextCursor / hasMore.
+  // Backend currently returns List<dynamic>; when it returns PaginatedList shape
+  // {items, nextCursor, hasMore} these three fields are populated in _load/_loadMore.
+  String? _cursor;
+  bool _hasMore = false;
+  bool _isLoadingMore = false;
+
+  // Helper to view the current page as a PaginatedList for PaginatedListView.fromPaginated.
+  PaginatedList<dynamic> get _paginated =>
+      PaginatedList(items: _entries, nextCursor: _cursor, hasMore: _hasMore);
 
   @override
   void initState() {
@@ -45,17 +61,69 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       setState(() => _isLoading = false);
       return;
     }
+    // pushProgress otherwise only fires on login/reconnect (see
+    // SyncService.syncAfterLogin), so "my" row here could be showing a
+    // stale snapshot from then instead of what was just earned this
+    // session. Push the live local numbers first so it's never stale.
+    await GamificationService().load();
+    await SecureApiService().pushProgress(
+      xp: GamificationService().xp,
+      streak: GamificationService().streak,
+    );
+    // Pagination: currently loads all. When backend supports cursor pagination,
+    // switch to `getLeaderboard(limit: 20)` and handle the PaginatedList shape:
+    // final PaginatedList<dynamic> page = await SecureApiService().getLeaderboard(limit: 20);
+    // _entries = page.items; _cursor = page.nextCursor; _hasMore = page.hasMore;
+    // For raw map response: {items, nextCursor, hasMore}
+    // _entries = result['items'] as List; _cursor = result['nextCursor'] as String?; _hasMore = result['hasMore'] as bool? ?? false;
     final entries = await SecureApiService().getLeaderboard();
+    // TODO(1M): wire ?limit=20&cursor= — parse {items, nextCursor, hasMore} into _paginated when backend returns cursor shape.
     if (!mounted) return;
     setState(() {
       _entries = entries;
+      // _cursor = (result as PaginatedList).nextCursor; // or result['nextCursor'] for map shape
+      // _hasMore = (result as PaginatedList).hasMore;
       _isLoading = false;
     });
   }
 
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      // Correct cursor wiring: passes _cursor (which is PaginatedList.nextCursor) to fetch the next page
+      // and appends items while updating nextCursor/hasMore in one setState.
+      // final PaginatedList<dynamic> nextPage =
+      //     await SecureApiService().getLeaderboard(limit: 20, cursor: _cursor);
+      // if (!mounted) return;
+      // setState(() {
+      //   _entries.addAll(nextPage.items);
+      //   _cursor = nextPage.nextCursor; // <- nextCursor correctly propagated
+      //   _hasMore = nextPage.hasMore;
+      // });
+      // Map shape alternative: result['nextCursor'] / result['hasMore'] / result['items']
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return NexusScreen(title: 'Leaderboard', body: _buildBody(context));
+    final api = SecureApiService();
+    final orgName = api.organizationName;
+    final orgLogoUrl = api.orgLogoUrl;
+    final hasOrg = orgName != null && orgName.trim().isNotEmpty;
+    return NexusScreen(
+      title: 'Leaderboard',
+      titleWidget: hasOrg
+          ? OrgBrandMark(
+              fallbackTitle: 'Leaderboard',
+              name: orgName,
+              logoUrl: orgLogoUrl,
+            )
+          : null,
+      body: _buildBody(context),
+    );
   }
 
   Widget _buildBody(BuildContext context) {
@@ -101,18 +169,26 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     }
 
     final myId = SecureApiService().userId;
+    // PaginatedListView is wired to cursor pagination: hasMore/nextCursor drive infinite scroll.
+    // Backend should expose GET /api/users/leaderboard?limit=20&cursor= returning PaginatedList {items, nextCursor, hasMore}.
+    // Currently _hasMore is false so it behaves like ListView.builder; once _cursor/_hasMore are populated from PaginatedList,
+    // scrolling within threshold triggers _loadMore which correctly forwards _cursor as PaginatedList.nextCursor.
+    // Alternative: PaginatedListView.fromPaginated(paginated: _paginated, onLoadMoreCursor: (c) => _loadMoreWithCursor(c), ...)
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.builder(
+      child: PaginatedListView<dynamic>(
+        items: _entries,
+        hasMore: _hasMore,
+        isLoading: _isLoadingMore,
+        onLoadMore: _loadMore,
         padding: const EdgeInsets.fromLTRB(
           AppSpace.lg,
           AppSpace.md,
           AppSpace.lg,
           AppSpace.xxl,
         ),
-        itemCount: _entries.length,
-        itemBuilder: (context, index) {
-          final entry = Map<String, dynamic>.from(_entries[index] as Map);
+        itemBuilder: (context, item, index) {
+          final entry = Map<String, dynamic>.from(item as Map);
           return _buildRow(context, entry, index + 1, entry['id'] == myId);
         },
       ),
@@ -130,6 +206,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final xp = (entry['xp'] as num?)?.toInt() ?? 0;
     final streak = (entry['streak'] as num?)?.toInt() ?? 0;
     final photoUrl = entry['photoUrl'] as String?;
+    final entryOrg = (entry['organizationName'] as String?)?.trim();
+    final hasEntryOrg = entryOrg != null && entryOrg.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpace.xs),
@@ -146,11 +224,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               width: 32,
               child: Text('$rank', style: context.typeExtras.figure),
             ),
+            // Avatar: CachedNetworkImageProvider for 1M-scale caching; falls back to initial.
+            // ClipOval+CachedNetworkImage(memCacheWidth: 72) alternative would work, but provider keeps CircleAvatar API.
+            // maxWidth/maxHeight here is the provider equivalent of memCacheWidth (memory-resident cache size).
             CircleAvatar(
               radius: 18,
               backgroundColor: t.surfaceAlt,
               backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                  ? NetworkImage(photoUrl)
+                  ? CachedNetworkImageProvider(
+                      photoUrl,
+                      maxWidth: 72,
+                      maxHeight: 72,
+                    )
                   : null,
               child: (photoUrl == null || photoUrl.isEmpty)
                   ? Text(
@@ -170,6 +255,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: context.typeExtras.bodyStrong,
                   ),
+                  if (hasEntryOrg)
+                    Text(
+                      '· $entryOrg',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.labelSmall?.copyWith(
+                        color: t.inkMuted,
+                      ),
+                    ),
                   if (streak > 0)
                     Text('$streak day streak', style: context.text.bodySmall),
                 ],

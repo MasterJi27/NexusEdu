@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
@@ -61,13 +63,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       _error = null;
     });
 
-    final result = await SecureApiService().resetPassword(token, newPassword);
+    final result = await SecureApiService().resetPasswordResult(token, newPassword);
     if (!mounted) return;
 
     setState(() => _isLoading = false);
 
-    if (result['error'] != null) {
-      setState(() => _error = result['error'].toString());
+    if (!handleResultError(context, result)) {
+      setState(() => _error = (result as Failure).message);
       return;
     }
 

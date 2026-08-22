@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:go_router/go_router.dart';
+import 'package:nexus_edu/shared/widgets/nexus_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/features/tutor/presentation/providers/tutor_provider.dart';
@@ -269,50 +269,7 @@ class _TutorChatScreenState extends ConsumerState<TutorChatScreen> {
                     ),
                     border: Border.all(color: t.border),
                   ),
-                  child: MarkdownBody(
-                    data: text.isEmpty ? '…' : text,
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(context),
-                    ).copyWith(
-                      p: context.text.bodyMedium?.copyWith(height: 1.45),
-                      h1: context.text.headlineSmall,
-                      h2: context.text.titleLarge,
-                      h3: context.text.titleMedium,
-                      listBullet: context.text.bodyMedium?.copyWith(
-                        color: t.primary,
-                      ),
-                      strong: context.text.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                      code: context.text.bodyMedium?.copyWith(
-                        fontFamily: 'monospace',
-                        backgroundColor: t.surfaceAlt,
-                        color: t.ink,
-                      ),
-                      codeblockDecoration: BoxDecoration(
-                        color: t.surface,
-                        borderRadius: AppRadius.brMd,
-                        border: Border.all(color: t.border),
-                      ),
-                      blockquoteDecoration: BoxDecoration(
-                        color: t.primaryTint,
-                        borderRadius: AppRadius.brSm,
-                        border: Border(left: BorderSide(color: t.primary)),
-                      ),
-                      blockquote: context.text.bodyMedium?.copyWith(
-                        color: t.inkMuted,
-                        fontStyle: FontStyle.italic,
-                      ),
-                      horizontalRuleDecoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: t.border)),
-                      ),
-                      tableHead: context.text.labelMedium?.copyWith(
-                        color: t.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
+                  child: NexusMarkdown(text, shrinkWrap: true),
                 ),
                 const SizedBox(height: AppSpace.xs),
                 Row(

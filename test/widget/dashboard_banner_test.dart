@@ -14,11 +14,6 @@ void main() {
     return d.toIso8601String().substring(0, 10);
   }
 
-  String quizKey() {
-    final now = DateTime.now();
-    return '${now.year}-${now.month}-${now.day}:daily_plan_quiz';
-  }
-
   Future<void> pumpDashboard(WidgetTester tester) async {
     await AppSettings.instance.load();
     await tester.pumpWidget(
@@ -40,8 +35,13 @@ void main() {
   });
 
   testWidgets('nudge hides once the daily quiz is done', (tester) async {
+    // Real DailyQuizService signal, not the old disconnected manual
+    // checklist checkbox — see dashboard_screen.dart's _TodayPlan/
+    // _StreakBanner, which now both read DailyQuizService.todayCompleted
+    // instead of a separate "daily_plan_quiz" key nothing else ever set.
     SharedPreferences.setMockInitialValues({
-      quizKey(): true,
+      'today_quiz_completed': true,
+      'last_quiz_date': DateTime.now().toIso8601String(),
     });
     await pumpDashboard(tester);
     expect(find.textContaining('Earn your first win'), findsNothing);

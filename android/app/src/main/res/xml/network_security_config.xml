@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pins the backend cert. Add real pins via `openssl s_client -connect
+  nexus-edu-backend.azurewebsites.net:443 | openssl x509 -pubkey -noout
+  | openssl pkey -pubout | openssl pkey -outform der | openssl dgst -sha256 -binary | openssl enc -base64`.
+  For now we enforce HTTPS and disallow cleartext; pins can be added without code change.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">nexus-edu-backend.azurewebsites.net</domain>
+        <pin-set expiration="2027-01-01">
+            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
+            <pin digest="SHA-256">BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=</pin>
+        </pin-set>
+    </domain-config>
+</network-security-config>

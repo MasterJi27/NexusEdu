@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nexus_edu/core/theme/design_tokens.dart';
 
 class SubjectSyllabus {
   const SubjectSyllabus({
@@ -97,7 +98,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Physics',
         icon: Icons.bolt,
-        color: Colors.blueAccent,
+        color: AppBrandColors.digitalTeaching,
         topics: [
           'Motion',
           'Force and Laws of Motion',
@@ -108,7 +109,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Biology',
         icon: Icons.biotech,
-        color: Colors.green,
+        color: AppBrandColors.promptEngineering,
         topics: [
           'Cell: Fundamental Unit of Life',
           'Tissues',
@@ -119,7 +120,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Mathematics',
         icon: Icons.calculate,
-        color: Colors.deepPurpleAccent,
+        color: AppBrandColors.aiFoundations,
         topics: [
           'Number Systems',
           'Polynomials',
@@ -132,7 +133,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Mathematics',
         icon: Icons.functions,
-        color: Colors.deepPurpleAccent,
+        color: AppBrandColors.aiFoundations,
         topics: [
           'Real Numbers',
           'Polynomials',
@@ -143,7 +144,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Science',
         icon: Icons.science,
-        color: Colors.teal,
+        color: AppBrandColors.promptEngineering,
         topics: [
           'Chemical Reactions',
           'Life Processes',
@@ -154,7 +155,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Biology',
         icon: Icons.local_florist,
-        color: Colors.green,
+        color: AppBrandColors.promptEngineering,
         topics: [
           'Life Processes',
           'Control and Coordination',
@@ -167,7 +168,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Physics',
         icon: Icons.speed,
-        color: Colors.blueAccent,
+        color: AppBrandColors.digitalTeaching,
         topics: [
           'Units and Measurements',
           'Motion in a Straight Line',
@@ -178,7 +179,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Biology',
         icon: Icons.eco,
-        color: Colors.green,
+        color: AppBrandColors.promptEngineering,
         topics: [
           'The Living World',
           'Biological Classification',
@@ -189,7 +190,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Mathematics',
         icon: Icons.timeline,
-        color: Colors.deepPurpleAccent,
+        color: AppBrandColors.aiFoundations,
         topics: [
           'Sets',
           'Relations and Functions',
@@ -202,7 +203,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Physics',
         icon: Icons.electrical_services,
-        color: Colors.blueAccent,
+        color: AppBrandColors.digitalTeaching,
         topics: [
           'Electric Charges and Fields',
           'Current Electricity',
@@ -213,7 +214,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Biology',
         icon: Icons.bubble_chart,
-        color: Colors.green,
+        color: AppBrandColors.promptEngineering,
         topics: [
           'Reproduction in Organisms',
           'Genetics',
@@ -224,7 +225,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Mathematics',
         icon: Icons.stacked_line_chart,
-        color: Colors.deepPurpleAccent,
+        color: AppBrandColors.aiFoundations,
         topics: [
           'Relations and Functions',
           'Matrices',
@@ -237,7 +238,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Physics',
         icon: Icons.rocket_launch,
-        color: Colors.blueAccent,
+        color: AppBrandColors.digitalTeaching,
         topics: [
           'Mechanics',
           'Electrostatics',
@@ -248,7 +249,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Chemistry',
         icon: Icons.science,
-        color: Colors.orange,
+        color: AppBrandColors.claude,
         topics: [
           'Mole Concept',
           'Chemical Bonding',
@@ -259,7 +260,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Mathematics',
         icon: Icons.architecture,
-        color: Colors.deepPurpleAccent,
+        color: AppBrandColors.aiFoundations,
         topics: ['Quadratic Equations', 'Calculus', 'Vectors', 'Probability'],
       ),
     ],
@@ -267,7 +268,7 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Biology',
         icon: Icons.eco,
-        color: Colors.green,
+        color: AppBrandColors.promptEngineering,
         topics: [
           'Cell Biology',
           'Plant Physiology',
@@ -278,13 +279,13 @@ class LearningCatalog {
       const SubjectSyllabus(
         name: 'Physics',
         icon: Icons.bolt,
-        color: Colors.blueAccent,
+        color: AppBrandColors.digitalTeaching,
         topics: ['Mechanics', 'Electrostatics', 'Optics', 'Modern Physics'],
       ),
       const SubjectSyllabus(
         name: 'Chemistry',
         icon: Icons.science,
-        color: Colors.orange,
+        color: AppBrandColors.claude,
         topics: [
           'Physical Chemistry',
           'Organic Chemistry',
@@ -561,7 +562,7 @@ class LearningCatalog {
         title: '$classLabel Micro-Learning',
         subtitle: '${(baseProgress * 100).round()}% complete',
         icon: Icons.workspace_premium,
-        color: Colors.amber,
+        color: AppBrandColors.claude,
         progress: baseProgress,
       ),
     ];

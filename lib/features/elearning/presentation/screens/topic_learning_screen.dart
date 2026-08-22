@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
@@ -269,8 +270,14 @@ class _TopicLearningScreenState extends State<TopicLearningScreen> {
                         const SizedBox(height: AppSpace.md),
                         Row(
                           children: [
-                            const CircleAvatar(
-                              backgroundImage: NetworkImage('https://i.pravatar.cc/100?img=3'),
+                            CircleAvatar(
+                              backgroundColor: t.surfaceAlt,
+                              backgroundImage: const CachedNetworkImageProvider(
+                                'https://i.pravatar.cc/100?img=3',
+                                maxWidth: 100,
+                                maxHeight: 100,
+                              ),
+                              onBackgroundImageError: (_, _) {},
                             ),
                             const SizedBox(width: AppSpace.sm),
                             Text(

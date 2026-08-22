@@ -5,6 +5,7 @@ import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/services/sync_queue_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/features/attendance/data/attendance_hotspot.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/attendance_status_chip.dart';
 import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
@@ -55,8 +56,8 @@ class AttendanceSessionScreen extends StatefulWidget {
 }
 
 class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
-  late String _code = widget.initialCode;
-  late int _secondsLeft = widget.initialCodeTtlSeconds;
+  late String _code;
+  late int _secondsLeft;
   Timer? _tickTimer;
   Timer? _rosterTimer;
 
@@ -79,6 +80,13 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
   @override
   void initState() {
     super.initState();
+    assert(widget.initialCode.isNotEmpty, 'initialCode must not be empty');
+    assert(
+      widget.initialCodeTtlSeconds > 0,
+      'initialCodeTtlSeconds must be > 0',
+    );
+    _code = widget.initialCode;
+    _secondsLeft = widget.initialCodeTtlSeconds;
     _loadRoster();
     // One tick a second to count the code down and re-fetch a fresh one once
     // it expires — the server, not this timer, decides when it actually
@@ -103,24 +111,24 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
   }
 
   AttendanceHotspotSession _hotspotSession() => AttendanceHotspotSession(
-        sessionId: widget.sessionId,
-        subject: widget.subject,
-        teacherName: SecureApiService().userName,
-        code: _code,
-        codeExpiresAt: DateTime.now().add(Duration(seconds: _secondsLeft)),
-        lat: widget.lat,
-        lng: widget.lng,
-        radiusMeters: widget.radiusMeters,
-      );
+    sessionId: widget.sessionId,
+    subject: widget.subject,
+    teacherName: SecureApiService().userName,
+    code: _code,
+    codeExpiresAt: DateTime.now().add(Duration(seconds: _secondsLeft)),
+    lat: widget.lat,
+    lng: widget.lng,
+    radiusMeters: widget.radiusMeters,
+  );
 
   void _onHotspotMark(AttendanceHotspotMark mark) {
     SyncQueueService.instance.enqueue('attendance_mark', {
       'sessionId': widget.sessionId,
       'studentId': mark.studentId,
       'clientMarkedAt': mark.clientMarkedAt.toUtc().toIso8601String(),
-      'lat': ?mark.lat,
-      'lng': ?mark.lng,
-      'isMocked': ?mark.isMocked,
+      'lat': mark.lat,
+      'lng': mark.lng,
+      'isMocked': mark.isMocked,
     });
     if (mounted) setState(() => _hotspotMarks += 1);
   }
@@ -138,9 +146,7 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
       setState(() {});
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not start the hotspot server.')),
-      );
+      showErrorSnackBar(context, 'Could not start the hotspot server.');
     } finally {
       if (mounted) setState(() => _startingHotspot = false);
     }
@@ -158,9 +164,7 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
       setState(() {});
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      showErrorSnackBar(context, e.toString());
     } finally {
       if (mounted) setState(() => _startingBle = false);
     }
@@ -197,24 +201,35 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
       setState(() => _secondsLeft -= 1);
       return;
     }
-    final result = await SecureApiService().getAttendanceCode(
-      widget.sessionId,
-    );
+    final result = await SecureApiService().getAttendanceCode(widget.sessionId);
     if (!mounted) return;
     if (result['code'] != null) {
+      final newCode = result['code']?.toString() ?? '';
+      if (newCode.isEmpty) return;
+      final ttlRaw = result['codeTtlSeconds'];
+      final newTtl = ttlRaw != null
+          ? int.tryParse(ttlRaw.toString()) ?? 25
+          : 25;
       setState(() {
-        _code = result['code'] as String;
-        _secondsLeft = result['codeTtlSeconds'] as int? ?? 25;
+        _code = newCode;
+        _secondsLeft = newTtl;
       });
       // Keep the peer-to-peer session on the current code so students who
       // read it off the hotspot can mark directly to the server.
-      _hotspot?.updateCode(_code, DateTime.now().add(Duration(seconds: _secondsLeft)));
+      _hotspot?.updateCode(
+        _code,
+        DateTime.now().add(Duration(seconds: _secondsLeft)),
+      );
       final ble = _bleHost;
       if (ble != null && ble.isAdvertising) {
         ble.start(_hotspotSession());
       }
     } else if (result['codeTtlSeconds'] != null) {
-      setState(() => _secondsLeft = result['codeTtlSeconds'] as int);
+      final ttlRaw = result['codeTtlSeconds'];
+      final fallbackTtl = ttlRaw != null
+          ? int.tryParse(ttlRaw.toString()) ?? 25
+          : 25;
+      setState(() => _secondsLeft = fallbackTtl);
     }
   }
 
@@ -319,9 +334,7 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
   Widget build(BuildContext context) {
     final t = context.tokens;
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.sectionLabel} · ${widget.subject}'),
-      ),
+      appBar: AppBar(title: Text('${widget.sectionLabel} · ${widget.subject}')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpace.lg),
@@ -387,17 +400,15 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
             ),
           ),
           const SizedBox(height: AppSpace.xs),
-          Text(
-            'Refreshes in ${_secondsLeft}s',
-            style: context.text.bodySmall,
-          ),
+          Text('Refreshes in ${_secondsLeft}s', style: context.text.bodySmall),
         ],
       ),
     );
   }
 
   Widget _buildHotspotCard(AppTokens t) {
-    final running = _hotspot?.isRunning == true || _bleHost?.isAdvertising == true;
+    final running =
+        _hotspot?.isRunning == true || _bleHost?.isAdvertising == true;
     return NexusCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -425,8 +436,8 @@ class _AttendanceSessionScreenState extends State<AttendanceSessionScreen> {
           Text(
             running
                 ? _localIps != null
-                    ? 'Students on this phone\'s hotspot can mark at http://$_localIps:8788. Marks queue here and sync when internet returns.'
-                    : 'Students near this phone can mark over Bluetooth. Marks queue here and sync when internet returns.'
+                      ? 'Students on this phone\'s hotspot can mark at http://$_localIps:8788. Marks queue here and sync when internet returns.'
+                      : 'Students near this phone can mark over Bluetooth. Marks queue here and sync when internet returns.'
                 : 'No internet in class? Students mark peer-to-peer (hotspot or Bluetooth) and marks sync to the server when you are back online.',
             style: context.text.bodySmall?.copyWith(color: t.inkMuted),
           ),

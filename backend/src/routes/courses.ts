@@ -4,6 +4,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middlewares/auth';
 import { requireRole } from '../middlewares/error';
 import { validateBody } from '../middlewares/validate';
+import { parsePagination } from '../lib/pagination';
 
 // Never return the full User row from a join: password hashes must never
 // leave the server. Only identity fields are safe to expose.
@@ -15,13 +16,31 @@ const instructorSelect = {
 
 const router = Router();
 
-// Get all courses
+// Get all courses — 1M: cursor pagination guards unbounded table scan (max 20 enforced)
 router.get('/', async (req, res: Response) => {
   try {
+    // Validation: limit must be 1-20, cursor must be a string ID if provided
+    if (req.query.limit !== undefined) {
+      const parsed = Number(req.query.limit);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+        res.status(400).json({ error: 'limit must be an integer between 1 and 20' });
+        return;
+      }
+    }
+    if (req.query.cursor !== undefined && typeof req.query.cursor !== 'string') {
+      res.status(400).json({ error: 'cursor must be a string' });
+      return;
+    }
+    const { limit, cursor } = parsePagination(req.query as any, 20);
     const courses = await prisma.course.findMany({
-      include: { instructor: { select: instructorSelect } }
+      take: limit,
+      skip: cursor ? 1 : 0,
+      cursor: cursor ? { id: cursor as string } : undefined,
+      orderBy: { createdAt: 'desc' },
+      include: { instructor: { select: instructorSelect } },
     });
-    res.json(courses);
+    const nextCursor = courses.length === limit ? courses[courses.length - 1].id : null;
+    res.json({ items: courses, nextCursor });
   } catch (error) {
     console.error('Fetch courses error:', error);
     res.status(500).json({ error: 'Failed to fetch courses' });

@@ -20,6 +20,41 @@ abstract final class AppTheme {
   static ThemeData get lightTheme => _light ??= _build(AppTokens.light, Brightness.light);
   static ThemeData get darkTheme => _dark ??= _build(AppTokens.dark, Brightness.dark);
 
+  static final Map<int, ThemeData> _accentLight = {};
+  static final Map<int, ThemeData> _accentDark = {};
+
+  static Color? parseAccent(String? hex) {
+    if (hex == null) return null;
+    var h = hex.trim();
+    if (h.isEmpty) return null;
+    if (h.startsWith('#')) h = h.substring(1);
+    if (h.length == 3) h = h.split('').map((c) => '$c$c').join();
+    if (h.length == 6) h = 'FF$h';
+    else if (h.length != 8) return null;
+    final v = int.tryParse(h, radix: 16);
+    if (v == null) return null;
+    return Color(v);
+  }
+
+  static ThemeData lightThemeWith(Color accent) =>
+      _accentLight[accent.value] ??= _build(_withAccent(AppTokens.light, accent), Brightness.light);
+  static ThemeData darkThemeWith(Color accent) =>
+      _accentDark[accent.value] ??= _build(_withAccent(AppTokens.dark, accent), Brightness.dark);
+
+  static AppTokens _withAccent(AppTokens base, Color accent) {
+    // Derive pressed/tint from accent — simple 10% darken/lighten
+    final hsl = HSLColor.fromColor(accent);
+    final pressed = hsl.withLightness((hsl.lightness - 0.08).clamp(0.0, 1.0)).toColor();
+    final tint = hsl.withLightness(0.95).withSaturation(0.25).toColor();
+    final tintBorder = hsl.withLightness(0.85).withSaturation(0.35).toColor();
+    return base.copyWith(
+      primary: accent,
+      primaryPressed: pressed,
+      primaryTint: tint,
+      primaryTintBorder: tintBorder,
+    );
+  }
+
   /// Type pairing: Fraunces (display headings only) + IBM Plex Sans
   /// (everything functional) + IBM Plex Mono (tabular figures). See
   /// `DESIGN.md` section 03 for the rationale.

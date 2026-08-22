@@ -87,9 +87,10 @@ class _NexusSkeletonState extends State<NexusSkeleton>
     }
 
     return FadeTransition(
-      opacity: Tween<double>(begin: 0.45, end: 1.0).animate(
-        CurvedAnimation(parent: _controller!, curve: Curves.easeInOut),
-      ),
+      opacity: Tween<double>(
+        begin: 0.45,
+        end: 1.0,
+      ).animate(CurvedAnimation(parent: _controller!, curve: Curves.easeInOut)),
       child: block,
     );
   }

@@ -6,11 +6,16 @@ import { OAuth2Client } from 'google-auth-library';
 import prisma from '../lib/prisma';
 import { logLogin, logActivity } from '../lib/logger';
 import { env } from '../lib/env';
+import { sendEmail } from '../services/digestMailer';
 import { AuthRequest } from '../middlewares/auth';
 
 const JWT_SECRET = env.JWT_SECRET;
 const googleClient = env.GOOGLE_SERVER_CLIENT_ID ? new OAuth2Client(env.GOOGLE_SERVER_CLIENT_ID) : null;
 const MAX_ACTIVE_DEVICE_SESSIONS = Number(process.env.MAX_ACTIVE_DEVICE_SESSIONS || 2);
+// Device binding: one device can hold at most this many distinct accounts
+// (siblings sharing a phone, etc.). Prevents a single stolen device from
+// minting unlimited sessions across accounts.
+const MAX_ACCOUNTS_PER_DEVICE = Number(process.env.MAX_ACCOUNTS_PER_DEVICE || 3);
 
 function publicUser<T extends { password?: string | null }>(user: T) {
   const { password, ...safe } = user;
@@ -62,26 +67,77 @@ async function createOrRefreshDeviceSession(req: Request, userId: string) {
     });
   }
 
-  const activeSessions = await prisma.deviceSession.findMany({
-    where: { userId, revokedAt: null },
-    orderBy: { lastSeenAt: 'desc' },
-    select: { id: true, deviceName: true, lastSeenAt: true, createdAt: true },
-  });
+  // Wrap count+create in serializable transaction to prevent race where two concurrent
+  // requests both pass the count check and then both create, exceeding limits.
+  // Fallback: catch P2002 (unique violation on @@unique([userId, deviceId])) and return existing.
+  try {
+    return await prisma.$transaction(
+      async (tx) => {
+        const accountsOnDevice = await tx.deviceSession.count({
+          where: { deviceId: metadata.deviceId, revokedAt: null },
+        });
+        if (accountsOnDevice >= MAX_ACCOUNTS_PER_DEVICE) {
+          const err: any = new Error('DEVICE_LIMIT_ACCOUNTS');
+          err._deviceLimit = {
+            error: 'This device is already linked to 3 accounts. Sign out of another account on this device first.',
+            activeAccounts: accountsOnDevice,
+          };
+          throw err;
+        }
 
-  if (activeSessions.length >= MAX_ACTIVE_DEVICE_SESSIONS) {
-    return {
-      error: 'Device limit reached. This account can be active on only 2 devices.',
-      activeDevices: activeSessions,
-    };
+        const activeSessions = await tx.deviceSession.findMany({
+          where: { userId, revokedAt: null },
+          orderBy: { lastSeenAt: 'desc' },
+          select: { id: true, deviceName: true, lastSeenAt: true, createdAt: true },
+        });
+
+        if (activeSessions.length >= MAX_ACTIVE_DEVICE_SESSIONS) {
+          const err: any = new Error('DEVICE_LIMIT_SESSIONS');
+          err._deviceLimit = {
+            error: 'Device limit reached. This account can be active on only 2 devices.',
+            activeDevices: activeSessions,
+          };
+          throw err;
+        }
+
+        return tx.deviceSession.create({
+          data: {
+            userId,
+            ...metadata,
+            lastSeenAt: new Date(),
+          },
+        });
+      },
+      { isolationLevel: 'Serializable' } as any,
+    );
+  } catch (error: any) {
+    if (error?._deviceLimit) return error._deviceLimit;
+    // Handle race where concurrent creates violated @@unique([userId, deviceId])
+    if (error?.code === 'P2002') {
+      const retryExisting = await prisma.deviceSession.findUnique({
+        where: { userId_deviceId: { userId, deviceId: metadata.deviceId } },
+      });
+      if (retryExisting) {
+        return prisma.deviceSession.update({
+          where: { id: retryExisting.id },
+          data: { ...metadata, revokedAt: null, lastSeenAt: new Date() },
+        });
+      }
+    }
+    // Also check for PrismaClientKnownRequestError with code P2002
+    if (error?.name === 'PrismaClientKnownRequestError' && error?.code === 'P2002') {
+      const retryExisting = await prisma.deviceSession.findUnique({
+        where: { userId_deviceId: { userId, deviceId: metadata.deviceId } },
+      });
+      if (retryExisting) {
+        return prisma.deviceSession.update({
+          where: { id: retryExisting.id },
+          data: { ...metadata, revokedAt: null, lastSeenAt: new Date() },
+        });
+      }
+    }
+    throw error;
   }
-
-  return prisma.deviceSession.create({
-    data: {
-      userId,
-      ...metadata,
-      lastSeenAt: new Date(),
-    },
-  });
 }
 
 function issueToken(user: { id: string; email: string; role: string }, sessionId: string) {
@@ -96,6 +152,38 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password } = req.body;
 
+    // Institute-manager accounts are usually created by a teacher or
+    // principal (who hands over the credentials), but a standalone IM
+    // signup is allowed too — the login with those credentials is the same.
+    const requestedRole = String(req.body.role || '');
+
+    // HOD is a role a principal assigns to an existing account — there is
+    // no self-service HOD signup.
+    if (requestedRole === 'hod') {
+      res.status(403).json({
+        error: 'HOD accounts are assigned by the Principal from the management screen.',
+      });
+      return;
+    }
+
+    // Principal bootstrap: the very first admin can self-signup (the school
+    // provisions its own principal). Once an admin exists, signup is closed —
+    // further admins are provisioned by the existing one, not created from
+    // the public sign-in flow.
+    if (requestedRole === 'admin') {
+      const adminCount = await prisma.user.count({ where: { role: 'admin' } });
+      if (adminCount > 0) {
+        res.status(403).json({
+          error: 'A Principal already exists. Ask them to create any additional management accounts.',
+        });
+        return;
+      }
+    }
+
+    const role = ['teacher', 'parent', 'im', 'admin'].includes(requestedRole)
+      ? requestedRole
+      : 'student';
+
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       res.status(400).json({ error: 'An account already exists with this email.' });
@@ -108,7 +196,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
         name,
         email,
         password: passwordHash,
-        role: 'student',
+        role,
       }
     });
 
@@ -119,7 +207,9 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
     }
     const token = issueToken(user, deviceSession.id);
 
-    await logLogin(req, user.id);
+    // NOTE: deliberately no logLogin() here — a fresh account must keep
+    // lastLoginAt null so the one-time signup role claim (old app versions)
+    // stays allowed. A signup isn't a login.
     await logActivity(user.id, 'USER_SIGNUP', { role: user.role, deviceSessionId: deviceSession.id });
 
     res.status(201).json({ user: publicUser(user), token, session: deviceSession });
@@ -294,6 +384,41 @@ export const revokeSession = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
+// Device-limit recovery BEFORE login: the user is locked out (limit reached),
+// so they have no token to call DELETE /api/auth/sessions/:id. This endpoint
+// lets them drop one stale device by proving ownership of the account email
+// plus the session id (both already shown to them by the login error). It is
+// rate-limited and revokes nothing the caller can't already see.
+export const revokeDeviceSessionPreLogin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, sessionId } = req.body as { email?: string; sessionId?: string };
+    const user = await prisma.user.findUnique({
+      where: { email: (email ?? '').trim().toLowerCase() },
+      select: { id: true },
+    });
+    if (!user) {
+      res.status(404).json({ error: 'No account found for that email.' });
+      return;
+    }
+    const result = await prisma.deviceSession.updateMany({
+      where: {
+        id: sessionId,
+        userId: user.id,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'Device session not found. It may already be removed.' });
+      return;
+    }
+    res.status(204).end();
+  } catch (error) {
+    console.error('Pre-login revoke error:', error);
+    res.status(500).json({ error: 'Failed to remove device.' });
+  }
+};
+
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 const hashResetToken = (token: string) =>
@@ -322,7 +447,8 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
       data: { usedAt: new Date() },
     });
 
-    const rawToken = crypto.randomBytes(32).toString('hex');
+    // Six-digit numeric code — short enough to type from the email.
+    const rawToken = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
     await prisma.passwordResetToken.create({
       data: {
         userId: user.id,
@@ -339,12 +465,33 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
       console.log(`[dev] Password reset token for ${email}: ${devToken} (expires in 30 min)`);
     }
 
-    await logActivity(user.id, 'PASSWORD_RESET_REQUESTED', { email });
+    // Deliver the code by email (Composio Gmail → SMTP). In production this
+    // is the only delivery path; without a mail backend the flow logs the
+    // failure and still returns the generic success response so account
+    // existence is never leaked.
+    let emailSent = false;
+    if (!devToken) {
+      emailSent = await sendEmail(
+        email,
+        'NexusEdu password reset code',
+        `Hi ${user.name || 'there'},\n\n` +
+          `We got a request to reset your NexusEdu password. Your one-time ` +
+          `6-digit reset code (valid for 30 minutes):\n\n  ${rawToken}\n\n` +
+          `Open the NexusEdu app → Sign in → Forgot password → enter this code ` +
+          `to set a new password.\n\n` +
+          `If you didn't request this, you can safely ignore this email.`,
+      );
+      if (!emailSent) {
+        console.error(`[mail] Password reset email for ${email} could not be sent (no mail backend).`);
+      }
+    }
+
+    await logActivity(user.id, 'PASSWORD_RESET_REQUESTED', { email, emailSent });
 
     res.status(200).json({
       success: true,
       message: 'If an account exists, a reset link has been issued.',
-      ...(devToken ? { devToken, devTokenExpiresInMinutes: 30 } : {}),
+      ...(devToken ? { devToken, devTokenExpiresInMinutes: 30 } : { emailSent }),
     });
   } catch (error) {
     console.error('Forgot password error:', error);

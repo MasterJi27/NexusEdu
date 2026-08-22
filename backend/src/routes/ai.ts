@@ -45,24 +45,61 @@ router.use(authenticate, async (req: AuthRequest, res, next) => {
   }
 });
 
+const contentPartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string().max(8000) }),
+  z.object({
+    type: z.literal('image_url'),
+    image_url: z.object({
+      url: z
+        .string()
+        .max(2_100_000)
+        .refine((u) => u.startsWith('data:image/'), 'Image must be a data URI'),
+    }),
+  }),
+]);
+
 const chatSchema = z.object({
   messages: z.array(z.object({
     role: z.enum(['system', 'user', 'assistant']),
-    content: z.string().max(8000),
+    content: z.union([z.string().max(8000), z.array(contentPartSchema).min(1).max(2)]),
   })).min(1).max(50),
   temperature: z.number().min(0).max(2).optional(),
   max_tokens: z.number().int().positive().max(4096).optional(),
 });
+
+/** Flatten part-array message content back to plain text (for moderation,
+ *  RAG retrieval and the last-user-message extraction). */
+function flattenContent(content: any): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
+      .map((p: any) => p.text)
+      .join(' ');
+  }
+  return '';
+}
+
+function hasImagePart(content: any): boolean {
+  return (
+    Array.isArray(content) &&
+    content.some((p: any) => p?.type === 'image_url' && p?.image_url?.url)
+  );
+}
+
+// Groq's free vision model — used only when a message carries an image.
+const VISION_MODEL = process.env.AI_VISION_MODEL || 'llama-3.2-11b-vision-preview';
 
 router.post('/chat', validateBody(chatSchema), async (req: AuthRequest, res) => {
   const { messages, temperature, max_tokens } = req.body;
 
   try {
     const lastUserMessage = [...messages].reverse().find((m: any) => m.role === 'user')?.content;
+    const lastUserText = flattenContent(lastUserMessage);
 
     // Prompt-injection guard before anything reaches the model.
-    if (lastUserMessage) {
-      const moderation = await checkPromptInjection(lastUserMessage);
+    if (lastUserText) {
+      const moderation = await checkPromptInjection(lastUserText);
       if (moderation.flagged) {
         res.status(400).json({ error: 'Your message was flagged for safety. Please rephrase.' });
         return;
@@ -72,12 +109,12 @@ router.post('/chat', validateBody(chatSchema), async (req: AuthRequest, res) => 
     const hasSystemPrompt = messages.some((m: any) => m.role === 'system');
 
     let systemContent = hasSystemPrompt
-      ? messages.find((m: any) => m.role === 'system')!.content
+      ? flattenContent(messages.find((m: any) => m.role === 'system')!.content)
       : systemPrompts.general;
 
     // RAG: ground the answer in the student's own course material.
-    if (lastUserMessage) {
-      const chunks = await retrieve(req.user!.id, lastUserMessage, 5);
+    if (lastUserText) {
+      const chunks = await retrieve(req.user!.id, lastUserText, 5);
       const ragContext = buildRagContext(chunks);
       if (ragContext) {
         systemContent = `${systemContent}\n\n${ragContext}`;
@@ -90,12 +127,15 @@ router.post('/chat', validateBody(chatSchema), async (req: AuthRequest, res) => 
         )
       : [{ role: 'system', content: systemContent }, ...messages];
 
+    const usesVision = messages.some((m: any) => hasImagePart(m.content));
+
     const data = await groqChat({
       messages: enrichedMessages,
       temperature,
       maxTokens: max_tokens,
       feature: 'general',
       userId: req.user!.id,
+      model: usesVision ? VISION_MODEL : undefined,
     });
 
     const quota = await getAiQuota(req.user!.id);
@@ -245,7 +285,13 @@ router.post('/tutor-stream', validateBody(tutorStreamSchema), async (req: AuthRe
 
     if (typeof bodyStream.pipe === 'function' && typeof bodyStream.pipeTo !== 'function') {
       bodyStream.pipe(res);
-      await new Promise((resolve) => bodyStream.on('end', resolve));
+      // Node streams: 'end' resolves, 'error' rejects — without the error
+      // listener a mid-stream Groq failure never resolves this promise and
+      // the request hangs (reader branch below is already in the try/catch).
+      await new Promise<void>((resolve, reject) => {
+        bodyStream.on('end', resolve);
+        bodyStream.on('error', reject);
+      });
     } else {
       const reader = bodyStream.getReader();
       const decoder = new TextDecoder('utf-8');

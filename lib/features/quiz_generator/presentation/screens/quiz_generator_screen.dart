@@ -6,6 +6,7 @@ import 'package:nexus_edu/core/services/learner_profile_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
+import 'package:nexus_edu/shared/widgets/nexus_filter_chips.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
 import 'package:nexus_edu/shared/widgets/nexus_text_field.dart';
 
@@ -156,47 +157,21 @@ class _QuizGeneratorScreenState extends State<QuizGeneratorScreen> {
               children: [
                 Text('Class', style: ctx.text.labelMedium?.copyWith(color: t.inkMuted)),
                 const SizedBox(height: AppSpace.sm),
-                Wrap(
-                  spacing: AppSpace.xs,
-                  runSpacing: AppSpace.xs,
-                  children: LearningCatalog.classes.map((g) {
-                    final selected = _grade == g;
-                    return ChoiceChip(
-                      label: Text(g),
-                      selected: selected,
-                      labelStyle: ctx.text.labelSmall?.copyWith(
-                        color: selected ? t.onPrimary : t.ink,
-                      ),
-                      selectedColor: t.primary,
-                      backgroundColor: t.surfaceAlt,
-                      side: BorderSide(color: selected ? t.primary : t.border),
-                      onSelected: (_) => setState(() {
-                        _grade = g;
-                        _subject = 'All subjects';
-                      }),
-                    );
-                  }).toList(),
+                NexusFilterChips<String>(
+                  options: LearningCatalog.classes,
+                  selected: _grade,
+                  onSelected: (g) => setState(() {
+                    _grade = g;
+                    _subject = 'All subjects';
+                  }),
                 ),
                 const SizedBox(height: AppSpace.lg),
                 Text('Subject', style: ctx.text.labelMedium?.copyWith(color: t.inkMuted)),
                 const SizedBox(height: AppSpace.sm),
-                Wrap(
-                  spacing: AppSpace.xs,
-                  runSpacing: AppSpace.xs,
-                  children: _subjects.map((s) {
-                    final selected = _subject == s;
-                    return ChoiceChip(
-                      label: Text(s),
-                      selected: selected,
-                      labelStyle: ctx.text.labelSmall?.copyWith(
-                        color: selected ? t.onPrimary : t.ink,
-                      ),
-                      selectedColor: t.primary,
-                      backgroundColor: t.surfaceAlt,
-                      side: BorderSide(color: selected ? t.primary : t.border),
-                      onSelected: (_) => setState(() => _subject = s),
-                    );
-                  }).toList(),
+                NexusFilterChips<String>(
+                  options: _subjects,
+                  selected: _subject,
+                  onSelected: (s) => setState(() => _subject = s),
                 ),
               ],
             ),

@@ -1,32 +1,17 @@
 import { Request, Response, Router } from 'express';
 import express from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
-import { authenticate, AuthRequest } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
 import { validateBody } from '../middlewares/validate';
+import { aiRateLimit } from '../middlewares/aiRateLimit';
 import { env } from '../lib/env';
 import { requireConfig, fetchJsonOrRespondError } from '../services/externalApi';
 
 const router = Router();
 
-/**
- * Azure AI services are rate-limited per user (like the GROQ routes) so one
- * account can't burn the free F0 quotas for everyone.
- */
-const azureAiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 120,
-  message: { error: 'Too many AI requests. Please slow down and try again in a few minutes.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.id) return `user:${authReq.user.id}`;
-    return ipKeyGenerator(req.ip || '');
-  },
-});
-
-router.use(authenticate, azureAiLimiter);
+// Azure AI services are rate-limited per user (like the GROQ routes) so one
+// account can't burn the free F0 quotas for everyone.
+router.use(authenticate, aiRateLimit);
 
 // ---------------------------------------------------------------------------
 // Azure AI Speech — text-to-speech (neural voices incl. Hindi/regional)
@@ -34,7 +19,9 @@ router.use(authenticate, azureAiLimiter);
 
 const ttsSchema = z.object({
   text: z.string().min(1).max(1000),
-  voice: z.string().default('hi-IN-SwaraNeural'),
+  // Matches real Azure voice names (e.g. "hi-IN-SwaraNeural", "en-US-AndrewMultilingualNeural").
+  // Letters and hyphens only — spliced raw into the SSML request below, so this also blocks SSML injection.
+  voice: z.string().regex(/^[a-z]{2,3}-[A-Z]{2}-[A-Za-z]{2,40}$/, 'Invalid voice name').default('hi-IN-SwaraNeural'),
   rate: z.string().regex(/^[+-]?\d+%$/).default('+0%'),
 });
 
@@ -57,6 +44,7 @@ router.post('/speech/tts', validateBody(ttsSchema), async (req: Request, res: Re
           'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
         },
         body: ssml,
+        signal: AbortSignal.timeout(30_000),
       },
     );
     if (!r.ok) {
@@ -132,9 +120,13 @@ router.post(
           method: 'POST',
           headers: {
             'Ocp-Apim-Subscription-Key': cfg.AZURE_DOC_INTEL_KEY,
-            'Content-Type': 'image/jpeg',
+            // Reflects the upload's real type (image/* or application/pdf)
+            // instead of always claiming JPEG, which made Azure reject every
+            // non-JPEG upload despite this route accepting them.
+            'Content-Type': req.headers['content-type'] ?? 'application/octet-stream',
           },
           body: Buffer.from(req.body),
+          signal: AbortSignal.timeout(30_000),
         },
       );
       if (!analyze.ok) {
@@ -151,6 +143,7 @@ router.post(
         await new Promise((resolve) => setTimeout(resolve, 1000));
         const result = await fetch(operationLocation, {
           headers: { 'Ocp-Apim-Subscription-Key': cfg.AZURE_DOC_INTEL_KEY },
+          signal: AbortSignal.timeout(15_000),
         });
         if (!result.ok) {
           res.status(502).json({ error: `OCR poll failed (${result.status})` });
@@ -241,9 +234,12 @@ router.post('/speech/stt', express.raw({ type: ['audio/*'], limit: '10mb' }), as
     res.status(400).json({ error: 'Send the audio as raw binary body' });
     return;
   }
-  const language = typeof req.query.language === 'string' && req.query.language
-    ? req.query.language
-    : 'en-US';
+  const sttQuery = sttSchema.safeParse(req.query);
+  if (!sttQuery.success) {
+    res.status(400).json({ error: 'Invalid query parameters', details: sttQuery.error.flatten().fieldErrors });
+    return;
+  }
+  const { language } = sttQuery.data;
   const url =
     `https://${env.AZURE_SPEECH_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1` +
     `?language=${encodeURIComponent(language)}&format=detailed`;
@@ -284,12 +280,12 @@ router.post('/speech/pronunciation', express.raw({ type: ['audio/*'], limit: '10
     res.status(400).json({ error: 'Send the audio as raw binary body' });
     return;
   }
-  const referenceText = typeof req.query.referenceText === 'string' ? req.query.referenceText : '';
-  if (!referenceText) {
-    res.status(400).json({ error: 'Missing referenceText query param' });
+  const pronunciationQuery = pronunciationSchema.safeParse(req.query);
+  if (!pronunciationQuery.success) {
+    res.status(400).json({ error: 'Invalid query parameters', details: pronunciationQuery.error.flatten().fieldErrors });
     return;
   }
-  const language = typeof req.query.language === 'string' && req.query.language ? req.query.language : 'en-US';
+  const { referenceText, language } = pronunciationQuery.data;
   try {
     // Pronunciation assessment params go in the Pronunciation-Assessment header
     // as Base64-encoded JSON (query param variant is not honoured by the service).
@@ -432,7 +428,9 @@ router.post('/language/pii', validateBody(languageSchema), async (req: Request, 
   const entities: any[] = doc?.entities ?? [];
   let redacted = text;
   for (const e of entities) {
-    redacted = redacted.replace(e.text, '[REDACTED]');
+    // replaceAll, not replace — a value that appears twice (e.g. the same
+    // phone number mentioned twice) must not survive a second time.
+    redacted = redacted.replaceAll(e.text, '[REDACTED]');
   }
   res.json({ entities, redactedText: redacted });
 });

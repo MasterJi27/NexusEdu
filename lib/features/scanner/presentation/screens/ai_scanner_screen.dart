@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:go_router/go_router.dart';
+import 'package:nexus_edu/shared/widgets/nexus_markdown.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
@@ -239,16 +239,7 @@ If it is a math problem, solve step-by-step and include the final answer only af
           : (ctx) => Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  MarkdownBody(
-                    data: _scanResult,
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(ctx),
-                    ).copyWith(
-                      p: ctx.text.bodyLarge,
-                      h2: ctx.text.headlineSmall,
-                    ),
-                  ),
+                  NexusMarkdown(_scanResult, shrinkWrap: true),
                   const SizedBox(height: AppSpace.md),
                   NexusButton(
                     label: 'Ask Tutor',

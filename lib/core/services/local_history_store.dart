@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// A JSON-encoded list of maps persisted under one `SharedPreferences` key —
@@ -20,8 +21,21 @@ class LocalHistoryStore {
         .toList();
   }
 
+  List<Map<String, dynamic>> _enforceCap(List<Map<String, dynamic>> list) {
+    final encoded = list.map((e) => json.encode(e)).toList();
+    final totalBytes = encoded.fold<int>(0, (sum, e) => sum + e.length);
+    if (totalBytes > 800 * 1024) {
+      debugPrint(
+        'LocalHistoryStore($key): _enforceCap exceeds 800KB ($totalBytes bytes, ${encoded.length} items) — truncating to 400 most recent',
+      );
+      return list.take(400).toList();
+    }
+    return list;
+  }
+
   Future<void> save(List<Map<String, dynamic>> entries) async {
+    final toStore = _enforceCap(entries);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(key, entries.map((e) => json.encode(e)).toList());
+    await prefs.setStringList(key, toStore.map((e) => json.encode(e)).toList());
   }
 }

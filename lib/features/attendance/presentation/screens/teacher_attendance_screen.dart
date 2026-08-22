@@ -5,6 +5,8 @@ import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/location_service.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 import 'package:nexus_edu/shared/widgets/nexus_list_row.dart';
@@ -122,13 +124,13 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
               onPressed: () async {
                 final label = labelController.text.trim();
                 if (label.isEmpty) return;
-                final result = await SecureApiService().createSection(
+                final result = await SecureApiService().createSectionResult(
                   label: label,
                   gradeLevel: grade,
                 );
                 if (!dialogContext.mounted) return;
-                if (result['error'] != null) {
-                  setDialogState(() => error = result['error'].toString());
+                if (!handleResultError(dialogContext, result)) {
+                  setDialogState(() => error = (result as Failure).message);
                   return;
                 }
                 Navigator.pop(dialogContext, true);
@@ -197,10 +199,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       radiusMeters: fence['noFence'] == true ? 75 : (fence['radius'] as int),
     );
     if (!mounted) return;
-    if (result['error'] != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(result['error'].toString())));
+    if (showMapErrorIfAny(context, result)) {
       return;
     }
     context.push(
@@ -474,9 +473,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   void _shareSection(Map<String, dynamic> section) {
     final inviteCode = (section['inviteCode'] as String?)?.trim();
     if (inviteCode == null || inviteCode.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This section has no invite code yet.')),
-      );
+      showErrorSnackBar(context, 'This section has no invite code yet.');
       return;
     }
     showModalBottomSheet<void>(
@@ -566,16 +563,16 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                         posting = true;
                         error = null;
                       });
-                      final result = await SecureApiService().postSyllabus(
+                      final result = await SecureApiService().postSyllabusResult(
                         sectionId: section['id'] as String,
                         title: title,
                         syllabus: syllabus,
                       );
                       if (!dialogContext.mounted) return;
-                      if (result['error'] != null) {
+                      if (!handleResultError(dialogContext, result)) {
                         setDialogState(() {
                           posting = false;
-                          error = result['error'].toString();
+                          error = (result as Failure).message;
                         });
                         return;
                       }
@@ -589,13 +586,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     titleController.dispose();
     syllabusController.dispose();
     if (posted == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Syllabus notes generated. Students were notified.',
-          ),
-        ),
-      );
+      showSuccessSnackBar(context, 'Syllabus notes generated. Students were notified.');
     }
   }
 
@@ -686,9 +677,7 @@ class _ShareSectionSheet extends StatelessWidget {
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: inviteCode));
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invite code copied.')),
-                  );
+                  showSuccessSnackBar(context, 'Invite code copied.');
                 }
               },
             ),
@@ -744,14 +733,14 @@ class _RosterSheetState extends State<_RosterSheet> {
       _adding = true;
       _addError = null;
     });
-    final result = await SecureApiService().addStudentToSection(
+    final result = await SecureApiService().addStudentToSectionResult(
       widget.sectionId,
       email,
     );
     if (!mounted) return;
     setState(() => _adding = false);
-    if (result['error'] != null) {
-      setState(() => _addError = result['error'].toString());
+    if (!handleResultError(context, result)) {
+      setState(() => _addError = (result as Failure).message);
       return;
     }
     _emailController.clear();
@@ -820,10 +809,7 @@ class _RosterSheetState extends State<_RosterSheet> {
       csv,
     );
     if (!mounted) return;
-    if (outcome['error'] != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(outcome['error'].toString())));
+    if (showMapErrorIfAny(context, outcome)) {
       return;
     }
     final missing = (outcome['missingStudents'] as List?) ?? const <dynamic>[];
@@ -831,9 +817,7 @@ class _RosterSheetState extends State<_RosterSheet> {
         ? 'Imported ${outcome['imported']} student(s).'
         : 'Imported ${outcome['imported']} student(s). '
               '${missing.length} not found: ${missing.join(', ')}';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    showSuccessSnackBar(context, message);
     _load();
   }
 
@@ -911,6 +895,7 @@ class _RosterSheetState extends State<_RosterSheet> {
               ),
               child: ListView.builder(
                 shrinkWrap: true,
+                physics: const ClampingScrollPhysics(),
                 itemCount: _roster.length,
                 itemBuilder: (ctx, i) {
                   final e = Map<String, dynamic>.from(_roster[i] as Map);
@@ -1060,7 +1045,7 @@ class _TasksSheetState extends State<_TasksSheet> {
                   setDialogState(() => error = 'Add a task title.');
                   return;
                 }
-                final result = await SecureApiService().createClassTask(
+                final result = await SecureApiService().createClassTaskResult(
                   sectionId: widget.sectionId,
                   title: title,
                   description: descController.text.trim().isEmpty
@@ -1070,8 +1055,8 @@ class _TasksSheetState extends State<_TasksSheet> {
                   points: int.tryParse(pointsController.text.trim()) ?? 10,
                 );
                 if (!dialogContext.mounted) return;
-                if (result['error'] != null) {
-                  setDialogState(() => error = result['error'].toString());
+                if (!handleResultError(dialogContext, result)) {
+                  setDialogState(() => error = (result as Failure).message);
                   return;
                 }
                 Navigator.pop(dialogContext, true);
@@ -1087,9 +1072,7 @@ class _TasksSheetState extends State<_TasksSheet> {
     if (created == true) {
       _load();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task assigned. Students were notified.')),
-        );
+        showSuccessSnackBar(context, 'Task assigned. Students were notified.');
       }
     }
   }
@@ -1150,6 +1133,7 @@ class _TasksSheetState extends State<_TasksSheet> {
               ),
               child: ListView.builder(
                 shrinkWrap: true,
+                physics: const ClampingScrollPhysics(),
                 itemCount: _tasks.length,
                 itemBuilder: (ctx, i) {
                   final task = Map<String, dynamic>.from(_tasks[i] as Map);

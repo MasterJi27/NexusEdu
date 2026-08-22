@@ -721,3 +721,26 @@ double nx_evaluate_expression(const char* expr, char* steps, int steps_max) {
     snprintf_safe(steps, steps_max, "Result = %.10f\n", r);
     return r;
 }
+
+/* ==================== FORENSIC WATERMARK (C++) ==================== */
+// FNV-1a 32-bit -> 8 hex chars, fast & obfuscated, called via JNI MethodChannel.
+void nx_watermark_hash(const char* input, char out8[9]) {
+    uint32_t h = 2166136261u;
+    for (const char* p = input; *p; ++p) { h ^= (uint8_t)*p; h *= 16777619u; }
+    // Mix with length
+    h ^= (uint32_t)strlen(input);
+    h *= 16777619u;
+    snprintf_safe(out8, 9, "%08x", h);
+}
+int nx_watermark_lsb_embed(unsigned char* pixels, int w, int h, const char* payload) {
+    size_t len = strlen(payload);
+    size_t bits = len * 8;
+    if ((size_t)w * h < bits) return -1;
+    for (size_t i = 0; i < bits; ++i) {
+        size_t byteIdx = i / 8;
+        int bitIdx = 7 - (i % 8);
+        int bit = (payload[byteIdx] >> bitIdx) & 1;
+        pixels[i] = (pixels[i] & 0xFE) | bit;
+    }
+    return 0;
+}

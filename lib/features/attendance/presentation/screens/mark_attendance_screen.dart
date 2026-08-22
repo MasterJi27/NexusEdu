@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:nexus_edu/core/services/location_service.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
 import 'package:nexus_edu/features/attendance/data/attendance_hotspot.dart';
 import 'package:nexus_edu/features/attendance/presentation/screens/qr_scanner_screen.dart';
 import 'package:nexus_edu/features/attendance/presentation/screens/teacher_attendance_screen.dart'
     show inviteCodeFromPayload;
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
@@ -112,20 +114,19 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       _error = null;
       _successStatus = null;
     });
-    final result = await SecureApiService().joinSectionByInvite(inviteCode);
+    final result = await SecureApiService().joinSectionByInviteResult(inviteCode);
     if (!mounted) return;
     setState(() => _submitting = false);
-    final section = result['section'];
-    if (result['error'] != null) {
-      setState(() => _error = result['error'].toString());
+    if (!handleResultError(context, result)) {
+      setState(() => _error = (result as Failure).message);
       return;
     }
+    final data = (result as Success<Map<String, dynamic>>).data;
+    final section = data['section'];
     final label = section is Map
         ? (section['label']?.toString() ?? 'the classroom')
         : 'the classroom';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('You joined $label.')));
+    showSuccessSnackBar(context, 'You joined $label.');
     _load();
   }
 
@@ -186,9 +187,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   void _joinFromSheet(TextEditingController controller) {
     final code = controller.text.trim().toUpperCase();
     if (!RegExp(r'^[A-Z2-9]{6}$').hasMatch(code)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter the 6-character invite code.')),
-      );
+      showErrorSnackBar(context, 'Enter the 6-character invite code.');
       return;
     }
     Navigator.of(context).pop();
@@ -226,11 +225,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     final session = await AttendanceHotspotClient().fetchSession(host, 8788);
     if (!mounted) return;
     if (session == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not reach the teacher. Check the IP and hotspot.'),
-        ),
-      );
+      showErrorSnackBar(context, 'Could not reach the teacher. Check the IP and hotspot.');
       return;
     }
     _showHotspotSheet(session, host: host);
@@ -240,11 +235,9 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     final session = await AttendanceBleClient().fetchSession();
     if (!mounted) return;
     if (session == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No teacher beacon found nearby. Make sure '
-              'Bluetooth is on and the teacher is broadcasting.'),
-        ),
+      showErrorSnackBar(
+        context,
+        'No teacher beacon found nearby. Make sure Bluetooth is on and the teacher is broadcasting.',
       );
       return;
     }
@@ -376,9 +369,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   ) async {
     final userId = SecureApiService().userId;
     if (userId == null) {
-      ScaffoldMessenger.of(
-        sheetContext,
-      ).showSnackBar(const SnackBar(content: Text('Sign in to mark attendance.')));
+      showErrorSnackBar(sheetContext, 'Sign in to mark attendance.');
       return;
     }
     setState(() => _submitting = true);
@@ -397,26 +388,16 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     setState(() => _submitting = false);
     if (!sheetContext.mounted) return;
     if (result == null) {
-      ScaffoldMessenger.of(sheetContext).showSnackBar(
-        const SnackBar(
-          content: Text('Could not reach the teacher. Stay near them and try again.'),
-        ),
-      );
+      showErrorSnackBar(sheetContext, 'Could not reach the teacher. Stay near them and try again.');
       return;
     }
-    if (result['error'] != null) {
-      ScaffoldMessenger.of(
-        sheetContext,
-      ).showSnackBar(SnackBar(content: Text(result['error'].toString())));
+    if (showMapErrorIfAny(sheetContext, result)) {
       return;
     }
     Navigator.pop(sheetContext);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Marked! ${session.teacherName} will sync it when online.',
-        ),
-      ),
+    showSuccessSnackBar(
+      context,
+      'Marked! ${session.teacherName} will sync it when online.',
     );
     _load();
   }
@@ -443,7 +424,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     var location = await LocationService.getCurrentPosition();
     if (!mounted) return;
 
-    final result = await SecureApiService().markAttendance(
+    final result = await SecureApiService().markAttendanceResult(
       session['sessionId'] as String,
       code,
       lat: location?.lat,
@@ -452,11 +433,12 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     );
     if (!mounted) return;
     setState(() => _submitting = false);
-    if (result['error'] != null) {
-      setState(() => _error = result['error'].toString());
+    if (!handleResultError(context, result)) {
+      setState(() => _error = (result as Failure).message);
       return;
     }
-    setState(() => _successStatus = result['status'] as String? ?? 'present');
+    final data = (result as Success<Map<String, dynamic>>).data;
+    setState(() => _successStatus = data['status'] as String? ?? 'present');
     _codeController.clear();
     _load();
   }

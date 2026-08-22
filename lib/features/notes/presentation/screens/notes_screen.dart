@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/services/app_settings.dart';
 import 'package:nexus_edu/core/services/ai_service.dart';
@@ -9,10 +8,14 @@ import 'package:nexus_edu/core/services/notes_sync_service.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
 import 'package:nexus_edu/features/attendance/presentation/screens/qr_scanner_screen.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
 import 'package:nexus_edu/shared/widgets/nexus_list_row.dart';
+import 'package:nexus_edu/shared/widgets/nexus_markdown.dart';
 import 'package:nexus_edu/shared/widgets/nexus_state_view.dart';
+import 'package:nexus_edu/shared/widgets/paginated_list.dart';
+import 'package:nexus_edu/core/utils/pagination.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -27,9 +30,15 @@ class NotesScreen extends StatefulWidget {
 
 class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  late List<Map<String, dynamic>> _notes;
+  List<Map<String, dynamic>> _notes = [];
   List<dynamic> _classNotes = [];
   bool _loadingClassNotes = true;
+  // PaginatedList stub for 1M-scale class notes — backend will return {items, nextCursor, hasMore}
+  String? _classNotesCursor;
+  bool _classNotesHasMore = false;
+  bool _classNotesLoadingMore = false;
+  PaginatedList<dynamic> get _classNotesPaginated =>
+      PaginatedList(items: _classNotes, nextCursor: _classNotesCursor, hasMore: _classNotesHasMore);
 
   /// Tint palette for note cards. Status colours are never spent on
   /// decoration — green means "present", not "saved" — so notes use the
@@ -46,7 +55,10 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this)..addListener(() => setState(() {}));
+    _tabController = TabController(length: 2, vsync: this)
+      ..addListener(() {
+        if (_tabController.indexIsChanging) setState(() {});
+      });
     _loadNotes();
     _loadClassNotes();
   }
@@ -59,6 +71,7 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
 
   Future<void> _loadClassNotes() async {
     if (!SecureApiService().isLoggedIn) {
+      if (!mounted) return;
       setState(() => _loadingClassNotes = false);
       return;
     }
@@ -67,7 +80,27 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
     setState(() {
       _classNotes = notes;
       _loadingClassNotes = false;
+      // TODO: when backend paginates teacher-notes, parse nextCursor/hasMore from Result
+      _classNotesCursor = null;
+      _classNotesHasMore = false;
     });
+  }
+
+  Future<void> _loadMoreClassNotes() async {
+    if (_classNotesLoadingMore || !_classNotesHasMore) return;
+    setState(() => _classNotesLoadingMore = true);
+    try {
+      // TODO: paginate with ?limit=20&cursor=_classNotesCursor when backend supports it
+      // final result = await SecureApiService().getTeacherNotes(limit: 20, cursor: _classNotesCursor);
+      // if (!mounted) return;
+      // setState(() {
+      //   _classNotes.addAll(result.items);
+      //   _classNotesCursor = result.nextCursor;
+      //   _classNotesHasMore = result.hasMore;
+      // });
+    } finally {
+      if (mounted) setState(() => _classNotesLoadingMore = false);
+    }
   }
 
   /// Demo notes are guest-only: once a student logs in, their notes come
@@ -122,8 +155,15 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
   }
 
   void _saveNotes() {
-    AppSettings.instance.saveCachedNotes(_notes);
-    NotesSyncService.pushDirty(_notes);
+    final sanitized = _notes.map((n) {
+      final c = n['color'];
+      if (c is Color) return {...n, 'color': (c as Color).value};
+      return n;
+    }).toList();
+    AppSettings.instance.saveCachedNotes(sanitized);
+    // Keep in-memory list in sanitized form too to avoid re-persisting Color
+    _notes = sanitized;
+    NotesSyncService.pushDirty(sanitized);
   }
 
   void _generateQuizFromNotes() async {
@@ -153,7 +193,7 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('AI Quiz from Notes'),
-        content: SingleChildScrollView(child: MarkdownBody(data: result, selectable: true, styleSheet: _markdownStyle(context))),
+        content: SingleChildScrollView(child: NexusMarkdown(result, shrinkWrap: true)),
         actions: [
           TextButton(
             onPressed: () {
@@ -496,11 +536,14 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
     }
     return RefreshIndicator(
       onRefresh: _loadClassNotes,
-      child: ListView.builder(
+      child: PaginatedListView<dynamic>(
+        items: _classNotesPaginated.items,
+        hasMore: _classNotesPaginated.hasMore,
+        isLoading: _classNotesLoadingMore,
+        onLoadMore: _loadMoreClassNotes,
         padding: const EdgeInsets.fromLTRB(AppSpace.md, AppSpace.md, AppSpace.md, 100),
-        itemCount: _classNotes.length,
-        itemBuilder: (context, index) {
-          final note = _classNotes[index] as Map<String, dynamic>;
+        itemBuilder: (context, item, index) {
+          final note = item as Map<String, dynamic>;
           final teacher = note['teacher'] as Map<String, dynamic>?;
           return _buildClassNoteCard(note, teacher);
         },
@@ -534,11 +577,7 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
             style: context.text.titleSmall,
           ),
           const SizedBox(height: AppSpace.xs),
-          MarkdownBody(
-            data: note['content'] as String? ?? '',
-            selectable: true,
-            styleSheet: _markdownStyle(context),
-          ),
+          NexusMarkdown(note['content'] as String? ?? '', shrinkWrap: true),
           if (teacher?['name'] != null) ...[
             const SizedBox(height: AppSpace.sm),
             Text(
@@ -554,46 +593,15 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
     );
   }
 
-  static MarkdownStyleSheet _markdownStyle(BuildContext context) {
-    final t = context.tokens;
-    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      p: context.text.bodyMedium?.copyWith(height: 1.45),
-      h1: context.text.titleLarge,
-      h2: context.text.titleMedium,
-      h3: context.text.titleSmall,
-      listBullet: context.text.bodyMedium?.copyWith(color: t.primary),
-      strong: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
-      code: context.text.bodyMedium?.copyWith(
-        fontFamily: 'monospace',
-        color: t.ink,
-      ),
-      codeblockDecoration: BoxDecoration(
-        color: t.surface,
-        borderRadius: AppRadius.brMd,
-        border: Border.all(color: t.border),
-      ),
-      blockquote: context.text.bodyMedium?.copyWith(
-        color: t.inkMuted,
-        fontStyle: FontStyle.italic,
-      ),
-      blockquoteDecoration: BoxDecoration(
-        color: t.primaryTint,
-        borderRadius: AppRadius.brSm,
-        border: Border(left: BorderSide(color: t.primary)),
-      ),
-      tableHead: context.text.labelMedium?.copyWith(
-        color: t.ink,
-        fontWeight: FontWeight.w700,
-      ),
-    );
-  }
-
   Widget _buildNoteCard(Map<String, dynamic> note, int index) {
     final t = context.tokens;
     final palette = _notePalette(t);
-    final (fill, border) = note['color'] is Color
-        ? (note['color'] as Color, t.primaryTintBorder)
-        : palette[index % palette.length];
+    final rawColor = note['color'];
+    final (fill, border) = rawColor is Color
+        ? (rawColor, t.primaryTintBorder)
+        : rawColor is int
+            ? (Color(rawColor), t.primaryTintBorder)
+            : palette[index % palette.length];
     return GestureDetector(
       onTap: () => _openNote(index),
       onLongPress: () => _showNoteOptions(index),
@@ -743,11 +751,7 @@ class _NotesScreenState extends State<NotesScreen> with SingleTickerProviderStat
                   builder: (dctx) => AlertDialog(
                     title: Text('Quiz: ${note["title"] ?? "Untitled"}'),
                     content: SingleChildScrollView(
-                      child: MarkdownBody(
-                        data: result,
-                        selectable: true,
-                        styleSheet: _markdownStyle(context),
-                      ),
+                      child: NexusMarkdown(result, shrinkWrap: true),
                     ),
                     actions: [
                       NexusButton(

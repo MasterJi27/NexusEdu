@@ -1,0 +1,13 @@
+[package]
+name = "rust_watermark"
+version = "0.1.0"
+edition = "2021"
+description = "Forensic watermark hash for Nexus Edu live class — Rust, memory-safe, no GC pause"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "rust_watermark"
+
+[dependencies]
+sha2 = "0.10"
+hex = "0.4"

@@ -20,7 +20,7 @@ class StreakNotificationService {
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
   bool _tzReady = false;
-  late bool _enabledPref;
+  bool _enabledPref = true;
 
   bool get enabled => _enabledPref;
 
@@ -52,8 +52,10 @@ class StreakNotificationService {
   }
 
   Future<void> _requestPermission() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return;
     await android.requestNotificationsPermission();
   }

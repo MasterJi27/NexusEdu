@@ -88,7 +88,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(width: AppSpace.xs),
           const Expanded(
-            child: Text(
+            child: const Text(
               'Nexus Edu',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -115,95 +115,92 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ],
       body: ListView(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.lg,
-            AppSpace.xs,
-            AppSpace.lg,
-            AppSpace.xxl,
-          ),
-          children: [
-            if (!SecureApiService().isLoggedIn) ...[
-              _GuestBanner(onSignIn: () => context.go('/login')),
-              const SizedBox(height: AppSpace.md),
-            ],
-            _StreakBanner(firstWinEarnedToday: _gamification.firstWinEarnedToday),
-            const SizedBox(height: AppSpace.md),
-            _TodayPlan(
-              subjects: _subjectProgress.subjects,
-              onTap: _openRoute,
-            ),
-            const SizedBox(height: AppSpace.md),
-            _SearchBar(onTap: () => context.push('/search')),
-            const SizedBox(height: AppSpace.md),
-            _HeroPanel(
-              selectedClass: _selectedClass,
-              examName: settings.examName,
-              daysLeft: daysLeft,
-              onClassTap: () => context.push('/elearning-class'),
-              gamification: _gamification,
-            ),
-            const SizedBox(height: AppSpace.md),
-            NexusSectionHeader(
-              title: 'Continue learning',
-              actionLabel: 'Class',
-              onAction: () => context.push('/elearning-class'),
-            ),
-            _ContinueLearning(
-              subjects: _subjectProgress.subjects,
-              selectedClass: _selectedClass,
-              onTap: _openRoute,
-            ),
-            NexusSectionHeader(
-              title: 'Your subjects',
-              actionLabel: 'All',
-              onAction: () => context.push('/elearning-class'),
-            ),
-            _SubjectProgressSection(subjectProgress: _subjectProgress),
-            NexusSectionHeader(title: 'Quick actions'),
-            _QuickActionsGrid(
-              items: const [
-                _HomeAction(
-                  'Book Scanner',
-                  'Scan a page, ask about it',
-                  Icons.document_scanner_outlined,
-                  '/scanner',
-                ),
-                _HomeAction(
-                  'Flashcards',
-                  'Active recall practice',
-                  Icons.style_outlined,
-                  '/flashcards',
-                ),
-                _HomeAction(
-                  'Multi-language tutor',
-                  'Ask in your own language',
-                  Icons.translate_outlined,
-                  '/multi-lang-tutor',
-                ),
-                _HomeAction(
-                  'Focus Timer',
-                  'Pomodoro focus',
-                  Icons.timer_outlined,
-                  '/focus',
-                ),
-              ],
-              onTap: _openRoute,
-            ),
-            NexusSectionHeader(title: 'More'),
-            _MoreList(
-              items: const [
-                _HomeAction(
-                  'All features',
-                  'Curated tools, searchable',
-                  Icons.apps_outlined,
-                  '/features',
-                ),
-              ],
-              onTap: _openRoute,
-            ),
-          ],
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.lg,
+          AppSpace.xs,
+          AppSpace.lg,
+          AppSpace.xxl,
         ),
+        children: [
+          if (!SecureApiService().isLoggedIn) ...[
+            _GuestBanner(onSignIn: () => context.go('/login')),
+            const SizedBox(height: AppSpace.md),
+          ],
+          _StreakBanner(firstWinEarnedToday: _gamification.firstWinEarnedToday),
+          const SizedBox(height: AppSpace.md),
+          _TodayPlan(subjects: _subjectProgress.subjects, onTap: _openRoute),
+          const SizedBox(height: AppSpace.md),
+          _SearchBar(onTap: () => context.push('/search')),
+          const SizedBox(height: AppSpace.md),
+          _HeroPanel(
+            selectedClass: _selectedClass,
+            examName: settings.examName,
+            daysLeft: daysLeft,
+            onClassTap: () => context.push('/elearning-class'),
+            gamification: _gamification,
+          ),
+          const SizedBox(height: AppSpace.md),
+          NexusSectionHeader(
+            title: 'Continue learning',
+            actionLabel: 'Class',
+            onAction: () => context.push('/elearning-class'),
+          ),
+          _ContinueLearning(
+            subjects: _subjectProgress.subjects,
+            selectedClass: _selectedClass,
+            onTap: _openRoute,
+          ),
+          NexusSectionHeader(
+            title: 'Your subjects',
+            actionLabel: 'All',
+            onAction: () => context.push('/elearning-class'),
+          ),
+          _SubjectProgressSection(subjectProgress: _subjectProgress),
+          const NexusSectionHeader(title: 'Quick actions'),
+          _QuickActionsGrid(
+            items: const [
+              _HomeAction(
+                'Book Scanner',
+                'Scan a page, ask about it',
+                Icons.document_scanner_outlined,
+                '/scanner',
+              ),
+              _HomeAction(
+                'Flashcards',
+                'Active recall practice',
+                Icons.style_outlined,
+                '/flashcards',
+              ),
+              _HomeAction(
+                'Multi-language tutor',
+                'Ask in your own language',
+                Icons.translate_outlined,
+                '/multi-lang-tutor',
+              ),
+              _HomeAction(
+                'Focus Timer',
+                'Pomodoro focus',
+                Icons.timer_outlined,
+                '/focus',
+              ),
+            ],
+            onTap: _openRoute,
+          ),
+          const NexusSectionHeader(title: 'More'),
+          _MoreList(
+            items: const [
+              _HomeAction(
+                'All features',
+                'Curated tools, searchable',
+                Icons.apps_outlined,
+                '/features',
+              ),
+            ],
+            onTap: _openRoute,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -249,9 +246,11 @@ class _TodayPlanState extends State<_TodayPlan> {
         if (prefs.getBool('$prefix${_planKeys[key]}') == true) key,
     };
     if (!mounted) return;
-    setState(() => _done
-      ..clear()
-      ..addAll(done));
+    setState(
+      () => _done
+        ..clear()
+        ..addAll(done),
+    );
   }
 
   Future<void> _toggle(String key) async {
@@ -276,9 +275,7 @@ class _TodayPlanState extends State<_TodayPlan> {
     final started = subjects.where((s) => s.completedChapters > 0).toList();
     final weakest = started.isEmpty
         ? null
-        : started.reduce(
-            (a, b) => a.progress <= b.progress ? a : b,
-          );
+        : started.reduce((a, b) => a.progress <= b.progress ? a : b);
     final doneCount = _done.length;
     final allDone = doneCount == _planKeys.length;
 
@@ -455,9 +452,7 @@ class _ContinueLearning extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resumed = subjects
-        .where((s) => s.lastStudied != null)
-        .toList()
+    final resumed = subjects.where((s) => s.lastStudied != null).toList()
       ..sort((a, b) => b.lastStudied!.compareTo(a.lastStudied!));
     final last = resumed.isEmpty ? null : resumed.first;
 
@@ -470,9 +465,8 @@ class _ContinueLearning extends StatelessWidget {
             subtitle: last == null
                 ? selectedClass ?? 'Choose class'
                 : '${last.completedChapters}/${last.totalChapters} chapters done',
-            onTap: () => onTap(
-              last == null ? '/elearning-class' : '/elearning-class',
-            ),
+            onTap: () =>
+                onTap(last == null ? '/elearning-class' : '/elearning-class'),
           ),
         ),
         const SizedBox(width: AppSpace.sm),
@@ -529,7 +523,8 @@ class _StreakBannerState extends State<_StreakBanner> {
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
     final todayKey = '${now.year}-${now.month}-${now.day}';
-    final quizDone = prefs.getBool('$todayKey:${_TodayPlanState._planKeys['quiz']}') == true;
+    final quizDone =
+        prefs.getBool('$todayKey:${_TodayPlanState._planKeys['quiz']}') == true;
     if (!mounted) return;
     setState(() => _quizDone = quizDone);
   }
@@ -981,6 +976,13 @@ class _ActionGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    // P1-01: GridView(shrinkWrap:true, NeverScrollable) inside ListView — OK for
+    // 4-item Quick Actions (no virtualization needed, avoids sliver complexity).
+    // For 1M-scale or growing lists, migrate to PaginatedListView or CustomScrollView + SliverGrid
+    // to enable true list virtualization and avoid laying out all children at once.
+    // TODO: replace ListView+GridView(shrinkWrap) with PaginatedListView or CustomScrollView(
+    //   slivers: [SliverGrid(...), ...]) when Quick Actions becomes dynamic/paginated.
+    // intentionally not virtualized - 4 items
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),

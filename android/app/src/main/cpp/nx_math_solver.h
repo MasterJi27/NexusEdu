@@ -84,6 +84,10 @@ void nx_complex_nth_roots(double a[2], int n, double out[][2], char* steps, int 
 void nx_line_intersection(double a1, double b1, double c1, double a2, double b2, double c2, double out[2], char* steps, int steps_max);
 double nx_distance_point_line(double px, double py, double a, double b, double c, char* steps, int steps_max);
 
+/* === Forensic Watermark (C++ - fast, obfuscated) === */
+void nx_watermark_hash(const char* input, char out8[9]);
+int nx_watermark_lsb_embed(unsigned char* pixels, int w, int h, const char* payload);
+
 /* === Utility: Evaluation of string expression via Shunting-Yard (basic) === */
 double nx_evaluate_expression(const char* expr, char* steps, int steps_max);
 

@@ -134,7 +134,7 @@ class AzureAiService {
             body: {
               'text': text,
               'to': to,
-              'from': ?from,
+              if (from != null) 'from': from,
             },
           )
           .timeout(const Duration(seconds: 30));

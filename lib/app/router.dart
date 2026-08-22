@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/app/auth_state.dart';
 import 'package:nexus_edu/features/auth/presentation/screens/forgot_password_screen.dart';
@@ -98,6 +99,18 @@ final class AppRouter {
       if (_entryRoutes.contains(loc)) return auth.roleHome;
       return null;
     },
+    errorBuilder: (context, state) => Scaffold(
+      appBar: AppBar(title: const Text('Page not found')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            state.error?.toString() ?? 'Route not found: ${state.uri}',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    ),
     routes: [
       GoRoute(path: '/welcome', builder: (context, state) => const WelcomeScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
@@ -148,10 +161,28 @@ final class AppRouter {
       GoRoute(
         path: '/flashcards/review',
         builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>;
+          final extra = state.extra is Map<String, dynamic>
+              ? state.extra as Map<String, dynamic>
+              : null;
+          if (extra == null || extra['deckIndex'] == null) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('Invalid data')),
+              body: const Center(
+                child: Text(
+                  'Missing flashcard data. Please return to dashboard.',
+                ),
+              ),
+            );
+          }
+          final deckIndex = extra['deckIndex'] is int
+              ? extra['deckIndex'] as int
+              : int.tryParse(extra['deckIndex'].toString()) ?? 0;
+          final deck = extra['deck'] is Map<String, dynamic>
+              ? extra['deck'] as Map<String, dynamic>
+              : <String, dynamic>{};
           return FlashcardReviewScreen(
-            deckIndex: extra['deckIndex'] as int,
-            deck: extra['deck'] as Map<String, dynamic>,
+            deckIndex: deckIndex,
+            deck: deck,
           );
         },
       ),
@@ -179,13 +210,29 @@ final class AppRouter {
       GoRoute(
         path: '/attendance/session',
         builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>;
+          final extra = state.extra is Map<String, dynamic>
+              ? state.extra as Map<String, dynamic>
+              : null;
+          if (extra == null ||
+              extra['sessionId'] == null ||
+              extra['sectionLabel'] == null) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('Invalid data')),
+              body: const Center(
+                child: Text(
+                  'Missing attendance session data. Please return to dashboard.',
+                ),
+              ),
+            );
+          }
           return AttendanceSessionScreen(
-            sessionId: extra['sessionId'] as String,
-            sectionLabel: extra['sectionLabel'] as String,
-            subject: extra['subject'] as String,
-            initialCode: extra['code'] as String,
-            initialCodeTtlSeconds: extra['codeTtlSeconds'] as int,
+            sessionId: extra['sessionId'].toString(),
+            sectionLabel: extra['sectionLabel'].toString(),
+            subject: extra['subject']?.toString() ?? '',
+            initialCode: extra['code']?.toString() ?? '',
+            initialCodeTtlSeconds: extra['codeTtlSeconds'] is int
+                ? extra['codeTtlSeconds'] as int
+                : int.tryParse(extra['codeTtlSeconds']?.toString() ?? '0') ?? 0,
             lat: (extra['lat'] as num?)?.toDouble(),
             lng: (extra['lng'] as num?)?.toDouble(),
             radiusMeters: (extra['radiusMeters'] as num?)?.toInt(),

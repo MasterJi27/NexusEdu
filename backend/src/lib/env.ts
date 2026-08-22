@@ -64,4 +64,18 @@ export const env = {
   AZURE_VISION_ENDPOINT: process.env.AZURE_VISION_ENDPOINT,
   // Application Insights connection string — when unset, monitoring is off.
   APP_INSIGHTS_CONNECTION_STRING: process.env.APP_INSIGHTS_CONNECTION_STRING,
+  // Prometheus metrics auth — token required for /metrics unless internal 10.0.* IP
+  METRICS_TOKEN: process.env.METRICS_TOKEN,
+  // Agora (live classes): App Certificate is required to mint RTC tokens —
+  // without it, live sessions can't be started (see routes/liveClass.ts).
+  AGORA_APP_ID: process.env.AGORA_APP_ID,
+  AGORA_APP_CERTIFICATE: process.env.AGORA_APP_CERTIFICATE,
 };
+
+// SEC-R10: prevent ALLOW_ALL_ORIGINS_DEV in production
+if (env.isProduction && process.env.ALLOW_ALL_ORIGINS_DEV === 'true') {
+  throw new Error('ALLOW_ALL_ORIGINS_DEV not allowed in prod');
+}
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters');
+}

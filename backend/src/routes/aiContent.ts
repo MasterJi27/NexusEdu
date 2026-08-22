@@ -5,6 +5,7 @@ import prisma from '../lib/prisma';
 import { env } from '../lib/env';
 import { authenticate, AuthRequest } from '../middlewares/auth';
 import { validateBody } from '../middlewares/validate';
+import { aiRateLimit } from '../middlewares/aiRateLimit';
 import { groqChat, getAiQuota, reserveQuota, settleQuota, trackAiUsage } from '../services/aiService';
 import { requireConfig } from '../services/externalApi';
 
@@ -25,7 +26,7 @@ const upload = multer({
 // ---------------------------------------------------------------------------
 
 // Speech-to-text: audio upload -> whisper (free, 2000 req/day on Groq).
-router.post('/transcribe', authenticate, upload.single('audio'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/transcribe', authenticate, aiRateLimit, upload.single('audio'), async (req: AuthRequest, res: Response): Promise<void> => {
   const cfg = requireConfig({ GROQ_API_KEY: env.GROQ_API_KEY }, res, 'Voice');
   if (!cfg) return;
   const file = (req as AuthRequest & { file?: Express.Multer.File }).file;
@@ -37,16 +38,23 @@ router.post('/transcribe', authenticate, upload.single('audio'), async (req: Aut
 
   // Whisper has no token count of its own, but this endpoint used to run
   // entirely outside the shared quota/usage pipeline every other AI feature
-  // draws from — unlimited free transcription regardless of budget. A flat
-  // estimate puts it back inside the same shared budget.
-  const ESTIMATED_TOKENS = 500;
-  const reservation = await reserveQuota(userId, ESTIMATED_TOKENS);
-  if (!reservation.allowed) {
-    res.status(429).json({ error: 'AI token budget exhausted - tokens refill continuously', quota: reservation });
-    return;
-  }
+  // draws from — unlimited free transcription regardless of budget. Scaled
+  // by upload size (not a flat number) so a large file actually costs more
+  // of the shared budget instead of every upload — up to the 15MB limit —
+  // charging the same 500 tokens.
+  const ESTIMATED_TOKENS = Math.max(500, Math.ceil(file.buffer.length / 1024) * 5);
 
+  // reserveQuota must sit inside the try: if it rejects (DB hiccup), the
+  // catch below settles nothing and answers 500 instead of hanging the
+  // request on an unhandled rejection.
+  let reservation: { allowed: boolean; reservedTokens: number } | undefined;
   try {
+    reservation = await reserveQuota(userId, ESTIMATED_TOKENS);
+    if (!reservation.allowed) {
+      res.status(429).json({ error: 'AI token budget exhausted - tokens refill continuously', quota: reservation });
+      return;
+    }
+
     const form = new FormData();
     form.append(
       'file',
@@ -59,6 +67,7 @@ router.post('/transcribe', authenticate, upload.single('audio'), async (req: Aut
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.GROQ_API_KEY}` },
       body: form,
+      signal: AbortSignal.timeout(60_000),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -76,7 +85,9 @@ router.post('/transcribe', authenticate, upload.single('audio'), async (req: Aut
     });
     res.json({ text: data.text || '' });
   } catch (error: any) {
-    await settleQuota(userId, reservation.reservedTokens, 0);
+    if (reservation) {
+      await settleQuota(userId, reservation.reservedTokens, 0);
+    }
     console.error('Transcribe error:', error);
     res.status(500).json({ error: 'Transcription failed', details: error.message });
   }
@@ -90,7 +101,7 @@ const speechSchema = z.object({
 // Text-to-speech: text -> wav audio (free Orpheus voices on Groq).
 const ORPHEUS_VOICES = ['autumn', 'diana', 'hannah', 'austin', 'daniel', 'troy'] as const;
 
-router.post('/speech', authenticate, validateBody(speechSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/speech', authenticate, aiRateLimit, validateBody(speechSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   const cfg = requireConfig({ GROQ_API_KEY: env.GROQ_API_KEY }, res, 'Voice');
   if (!cfg) return;
   const { text, voice } = req.body;
@@ -102,13 +113,14 @@ router.post('/speech', authenticate, validateBody(speechSchema), async (req: Aut
   // from input length (~4 chars/token) rather than a flat number, since
   // synthesis cost scales with the text.
   const estimatedTokens = Math.max(50, Math.ceil(text.length / 4));
-  const reservation = await reserveQuota(userId, estimatedTokens);
-  if (!reservation.allowed) {
-    res.status(429).json({ error: 'AI token budget exhausted - tokens refill continuously', quota: reservation });
-    return;
-  }
-
+  let reservation: { allowed: boolean; reservedTokens: number } | undefined;
   try {
+    reservation = await reserveQuota(userId, estimatedTokens);
+    if (!reservation.allowed) {
+      res.status(429).json({ error: 'AI token budget exhausted - tokens refill continuously', quota: reservation });
+      return;
+    }
+
     const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -121,6 +133,7 @@ router.post('/speech', authenticate, validateBody(speechSchema), async (req: Aut
         input: text,
         response_format: 'wav',
       }),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       await settleQuota(userId, reservation.reservedTokens, 0);
@@ -141,7 +154,9 @@ router.post('/speech', authenticate, validateBody(speechSchema), async (req: Aut
     res.set('Content-Length', String(buffer.length));
     res.send(buffer);
   } catch (error: any) {
-    await settleQuota(userId, reservation.reservedTokens, 0);
+    if (reservation) {
+      await settleQuota(userId, reservation.reservedTokens, 0);
+    }
     console.error('Speech error:', error);
     res.status(500).json({ error: 'Speech synthesis failed', details: error.message });
   }
@@ -158,7 +173,7 @@ const quizSchema = z.object({
   count: z.number().int().min(3).max(15).optional(),
 });
 
-router.post('/generate-quiz', authenticate, validateBody(quizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/generate-quiz', authenticate, aiRateLimit, validateBody(quizSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   const { topic, subject, gradeLevel, count = 5 } = req.body;
   const userId = req.user!.id;
 
@@ -230,7 +245,7 @@ const gradeSchema = z.object({
   maxScore: z.number().int().min(1).max(100).optional(),
 });
 
-router.post('/grade-assignment', authenticate, validateBody(gradeSchema), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/grade-assignment', authenticate, aiRateLimit, validateBody(gradeSchema), async (req: AuthRequest, res: Response): Promise<void> => {
   const { title, content, maxScore = 10 } = req.body;
   const userId = req.user!.id;
 
@@ -298,7 +313,7 @@ router.post('/grade-assignment', authenticate, validateBody(gradeSchema), async 
 
 // Last 7 days of activity per child, summarized by the AI. Mirrors the email
 // digest but always available in-app, even without SMTP configured.
-router.get('/parent-digest', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/parent-digest', authenticate, aiRateLimit, async (req: AuthRequest, res: Response): Promise<void> => {
   const parentId = req.user!.id;
 
   try {

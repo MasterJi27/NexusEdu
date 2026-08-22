@@ -28,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "com.nexus.edu"
         minSdk = 24
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

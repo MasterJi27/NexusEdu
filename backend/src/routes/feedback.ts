@@ -23,29 +23,30 @@ router.post('/', authenticate, validateBody(feedbackSchema), async (req: AuthReq
 
     const { rating, category, comment } = req.body;
 
-    // Save feedback as an activity log entry
-    const log = await prisma.activityLog.create({
-      data: {
-        userId,
-        action: 'SUBMITTED_FEEDBACK',
-        metadata: {
-          rating,
-          category: category || 'General',
-          comment: comment || '',
+    // Atomically save feedback and award XP so neither can be lost on partial failure
+    const { updatedUser } = await prisma.$transaction(async (tx) => {
+      const log = await tx.activityLog.create({
+        data: {
+          userId,
+          action: 'SUBMITTED_FEEDBACK',
+          metadata: {
+            rating,
+            category: category || 'General',
+            comment: comment || '',
+          },
         },
-      },
-    });
-
-    // Award 20 XP to the user
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        xp: { increment: 20 },
-      },
-      select: {
-        id: true,
-        xp: true,
-      },
+      });
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: {
+          xp: { increment: 20 },
+        },
+        select: {
+          id: true,
+          xp: true,
+        },
+      });
+      return { log, updatedUser: updated };
     });
 
     res.status(200).json({

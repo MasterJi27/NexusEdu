@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_screen.dart';
@@ -37,17 +39,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _error = null;
     });
 
-    final result = await SecureApiService().forgotPassword(email);
+    final result = await SecureApiService().forgotPasswordResult(email);
     if (!mounted) return;
 
     setState(() => _isLoading = false);
 
-    if (result['error'] != null) {
-      setState(() => _error = result['error'].toString());
+    if (!handleResultError(context, result)) {
+      setState(() => _error = (result as Failure).message);
       return;
     }
 
-    final devToken = result['devToken']?.toString();
+    final data = (result as Success<Map<String, dynamic>>).data;
+    final devToken = data['devToken']?.toString();
     if (devToken != null && devToken.isNotEmpty) {
       // Dev mode: the backend can't email, so show the token so the flow can
       // be completed end-to-end. Production hides this entirely.

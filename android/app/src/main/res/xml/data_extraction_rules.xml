@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Explicit data extraction rules for Android 12+ (allowBackup=false already,
+  but Play pre-launch checks for this file). Nothing is backed up or restored
+  — auth tokens would otherwise survive `adb backup` or cloud restore on a
+  rooted device. See AndroidManifest `android:dataExtractionRules`.
+-->
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="false">
+        <!-- No files are included in cloud backup -->
+    </cloud-backup>
+    <device-transfer>
+        <!-- No files are included in device-to-device transfer -->
+    </device-transfer>
+</data-extraction-rules>

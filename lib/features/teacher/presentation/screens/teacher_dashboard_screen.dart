@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:nexus_edu/core/data/learning_catalog.dart';
 import 'package:nexus_edu/core/services/secure_api_service.dart';
 import 'package:nexus_edu/core/theme/design_tokens.dart';
+import 'package:nexus_edu/core/utils/result.dart';
+import 'package:nexus_edu/shared/utils/app_snackbar.dart';
 import 'package:nexus_edu/shared/widgets/nexus_banner.dart';
 import 'package:nexus_edu/shared/widgets/nexus_button.dart';
 import 'package:nexus_edu/shared/widgets/nexus_card.dart';
@@ -78,8 +80,17 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       });
       return;
     }
-    final notes = await api.getTeacherNotes();
+    final result = await api.getTeacherNotesResult();
     if (!mounted) return;
+    if (!handleResultError(context, result)) {
+      setState(() {
+        _isTeacher = true;
+        _notes = [];
+        _isLoading = false;
+      });
+      return;
+    }
+    final notes = (result as Success<List<dynamic>>).data;
     setState(() {
       _isTeacher = true;
       _notes = notes;
@@ -89,13 +100,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
 
   Future<void> _switchToTeacherMode() async {
     setState(() => _switching = true);
-    final result = await SecureApiService().updateProfile(role: 'teacher');
+    final result = await SecureApiService().updateProfileResult(role: 'teacher');
     if (!mounted) return;
-    if (result['error'] != null) {
+    if (!handleResultError(context, result)) {
       setState(() => _switching = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(result['error'].toString())));
       return;
     }
     setState(() => _switching = false);
@@ -196,29 +204,21 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                         onPressed: () async {
                           if (titleController.text.trim().isEmpty ||
                               contentController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(sheetContext).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Title and content are required.',
-                                ),
-                              ),
+                            showErrorSnackBar(
+                              sheetContext,
+                              'Title and content are required.',
                             );
                             return;
                           }
                           final result = await SecureApiService()
-                              .createTeacherNote(
+                              .createTeacherNoteResult(
                                 title: titleController.text.trim(),
                                 content: contentController.text.trim(),
                                 gradeLevel: grade,
                                 subject: subject,
                               );
                           if (!sheetContext.mounted) return;
-                          if (result['error'] != null) {
-                            ScaffoldMessenger.of(sheetContext).showSnackBar(
-                              SnackBar(
-                                content: Text(result['error'].toString()),
-                              ),
-                            );
+                          if (!handleResultError(sheetContext, result)) {
                             return;
                           }
                           Navigator.pop(sheetContext, true);
@@ -244,12 +244,9 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   }
 
   Future<void> _deleteNote(String id) async {
-    final result = await SecureApiService().deleteTeacherNote(id);
+    final result = await SecureApiService().deleteTeacherNoteResult(id);
     if (!mounted) return;
-    if (result['error'] != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(result['error'].toString())));
+    if (!handleResultError(context, result)) {
       return;
     }
     _load();

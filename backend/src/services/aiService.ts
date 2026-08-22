@@ -303,7 +303,7 @@ export async function consumeAiRequest(
 }
 
 export interface ChatOptions {
-  messages: { role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: unknown[] }[];
+  messages: { role: string; content: any; name?: string; tool_call_id?: string; tool_calls?: unknown[] }[];
   temperature?: number;
   maxTokens?: number;
   feature?: AiFeature;
@@ -312,6 +312,8 @@ export interface ChatOptions {
   jsonMode?: boolean;
   /** Tool definitions for function calling. */
   tools?: unknown[];
+  /** Model override (Groq only). Used e.g. for vision-capable models. */
+  model?: string;
 }
 
 interface GroqToolCall {
@@ -344,6 +346,7 @@ export async function groqChat(options: ChatOptions): Promise<GroqSuccess> {
     userId,
     jsonMode,
     tools,
+    model,
   } = options;
 
   let reserved = 0;
@@ -370,6 +373,10 @@ export async function groqChat(options: ChatOptions): Promise<GroqSuccess> {
     throw error;
   }
 
+  // Per-call model override only applies to Groq (Azure deploys are fixed
+  // deployments whose name is the model id there).
+  const effectiveModel = model && target.provider === 'groq' ? model : target.model;
+
   const startedAt = Date.now();
   let response: Response;
   try {
@@ -377,13 +384,14 @@ export async function groqChat(options: ChatOptions): Promise<GroqSuccess> {
       method: 'POST',
       headers: { ...target.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: target.model,
+        model: effectiveModel,
         messages,
         temperature,
         max_tokens: maxTokens,
         ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
         ...(tools ? { tools, tool_choice: 'auto' } : {}),
       }),
+      signal: AbortSignal.timeout(60_000),
     });
   } catch (error: any) {
     if (userId) await settleQuota(userId, reserved, 0);
@@ -426,7 +434,7 @@ export async function groqChat(options: ChatOptions): Promise<GroqSuccess> {
   await trackAiUsage({
     userId: userId || 'anonymous',
     feature,
-    model: target.model,
+    model: effectiveModel,
     endpoint: target.provider,
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
@@ -488,6 +496,9 @@ export async function groqStream(options: ChatOptions): Promise<StreamResult> {
       stream: true,
       stream_options: { include_usage: true },
     }),
+    // Generous ceiling for a full streamed generation — still bounded, so a
+    // provider that stalls mid-stream can't hold the connection forever.
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!response.ok) {

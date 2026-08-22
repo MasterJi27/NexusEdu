@@ -4,7 +4,8 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middlewares/auth';
 import { requireRole, isOwnerOrAdmin } from '../middlewares/error';
 import { validateBody } from '../middlewares/validate';
-import { indexSource, deleteSourceIndex } from '../services/ragService';
+import { enqueueRagIndex, indexSource, deleteSourceIndex } from '../services/ragService.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const router = Router();
 
@@ -18,15 +19,25 @@ const noteSelect = {
 // Teachers see their own notes (published or not). Students/parents see only
 // published notes matching their own gradeLevel (falls back to all published
 // notes for the requested grade if a grade query param is supplied).
+// 1M: cursor pagination with take limit guards unbounded findMany.
 router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const { limit, cursor } = parsePagination(req.query, 50);
+    const pagination = {
+      take: limit,
+      skip: cursor ? 1 : 0,
+      cursor: cursor ? { id: cursor as string } : undefined,
+    };
+
     if (req.user!.role === 'teacher' || req.user!.role === 'admin') {
       const notes = await prisma.teacherNote.findMany({
         where: { teacherId: req.user!.id },
         orderBy: { createdAt: 'desc' },
         select: noteSelect,
+        ...pagination,
       });
-      res.status(200).json(notes);
+      const nextCursor = notes.length === limit ? notes[notes.length - 1].id : null;
+      res.status(200).json({ items: notes, nextCursor });
       return;
     }
 
@@ -35,7 +46,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
     )?.gradeLevel;
 
     if (!gradeLevel) {
-      res.status(200).json([]);
+      res.status(200).json({ items: [], nextCursor: null });
       return;
     }
 
@@ -48,9 +59,15 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
       },
       orderBy: { createdAt: 'desc' },
       select: noteSelect,
+      ...pagination,
     });
-    res.status(200).json(notes);
-  } catch (error) {
+    const nextCursor = notes.length === limit ? notes[notes.length - 1].id : null;
+    res.status(200).json({ items: notes, nextCursor });
+  } catch (error: any) {
+    if (error?.status === 400) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     console.error('List teacher notes error:', error);
     res.status(500).json({ error: 'Failed to fetch notes.' });
   }
@@ -59,7 +76,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
 const createNoteSchema = z.object({
   title: z.string().trim().min(1).max(200),
   content: z.string().trim().min(1).max(20000),
-  gradeLevel: z.string().trim().min(1).max(20),
+  gradeLevel: z.string().trim().min(1).max(100),
   subject: z.string().trim().min(1).max(50),
   topic: z.string().trim().max(100).optional(),
   isPublished: z.boolean().optional(),
@@ -76,14 +93,14 @@ router.post('/', authenticate, requireRole('teacher', 'admin'), validateBody(cre
       },
       select: noteSelect,
     });
-    // Best-effort RAG indexing in the background; failures never block creation.
-    void indexSource({
+    // Best-effort RAG indexing via queue when available, fallback to direct index.
+    void enqueueRagIndex({
       userId: req.user!.id,
       sourceType: 'teacher_note',
       sourceId: note.id,
       title: note.title,
       content: note.content,
-    });
+    }).then((enqueued) => { if (!enqueued) void indexSource({ userId: req.user!.id, sourceType: 'teacher_note', sourceId: note.id, title: note.title, content: note.content }); });
     res.status(201).json(note);
   } catch (error) {
     console.error('Create teacher note error:', error);

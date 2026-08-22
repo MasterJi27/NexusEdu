@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:nexus_edu/core/models/app_user.dart';
+import 'package:nexus_edu/core/network/api_client.dart';
 import 'package:nexus_edu/core/utils/result.dart';
 
 /// Talks to the real NexusEdu backend (Express + Prisma, deployed on Azure).
@@ -31,12 +32,29 @@ class SecureApiService {
   String? _userName;
   String? _role;
 
+  String? _organizationName;
+  String? _orgLogoUrl;
+  String? _accentColorHex;
+
   bool get isLoggedIn => _token != null;
   String get userName => _userName ?? 'Guest';
   String? get token => _token;
   String? get userId => _userId;
   String? get role => _role;
   bool get isTeacher => _role == 'teacher';
+  String? get organizationName => _organizationName;
+  String? get orgLogoUrl => _orgLogoUrl;
+  String? get accentColorHex => _accentColorHex;
+
+  void _syncOrgBranding(Map<String, dynamic> profile) {
+    final name = profile['organizationName'] as String?;
+    final logo = profile['orgLogoUrl'] as String?;
+    final accent =
+        (profile['accentColor'] ?? profile['accent_color']) as String?;
+    _organizationName = name;
+    _orgLogoUrl = logo;
+    _accentColorHex = accent;
+  }
 
   Future<String?> _readSecure(String key) async {
     try {
@@ -56,7 +74,12 @@ class SecureApiService {
     try {
       await _storage.write(key: key, value: value);
     } catch (e) {
-      debugPrint('SecureApiService: Secure storage write failed for $key (session kept in memory only): $e');
+      debugPrint(
+        'SecureApiService: Secure storage write failed for $key (session kept in memory only): $e',
+      );
+      // TODO: propagate to UI via Result so caller can show Snackbar once via
+      // ErrorReportingService if needed; currently swallowed to keep session in
+      // memory-only (fail-closed) and avoid crashing login flow.
     }
   }
 
@@ -71,7 +94,12 @@ class SecureApiService {
   /// Older builds wrote auth values to SharedPreferences under `fallback_*`
   /// when secure storage failed. Purge any leftovers so a plaintext token
   /// never survives in prefs after upgrade.
-  static const _authKeys = [_authTokenKey, _authUserIdKey, _authUserNameKey, _authRoleKey];
+  static const _authKeys = [
+    _authTokenKey,
+    _authUserIdKey,
+    _authUserNameKey,
+    _authRoleKey,
+  ];
 
   Future<void> _purgeLegacyPrefsFallback() async {
     try {
@@ -117,6 +145,9 @@ class SecureApiService {
     _userId = null;
     _userName = null;
     _role = null;
+    _organizationName = null;
+    _orgLogoUrl = null;
+    _accentColorHex = null;
     await _deleteSecure(_authTokenKey);
     await _deleteSecure(_authUserIdKey);
     await _deleteSecure(_authUserNameKey);
@@ -143,6 +174,14 @@ class SecureApiService {
     };
   }
 
+  /// Dual HTTP stack deprecation: this service keeps its own `_send`/`_request`
+  /// for legacy callers, but new code should use the single stack in
+  /// [ApiClient.requestResult] (headers, timeouts, device-id, Result wrapping).
+  /// These helpers are kept for backward compat and will be removed once all
+  /// call sites migrate to repositories that inject [ApiClient].
+  @Deprecated(
+    'Use ApiClient.requestResult instead — dual stack, prefer single ApiClient',
+  )
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -162,6 +201,10 @@ class SecureApiService {
 
   /// Like [_request], but for endpoints that may return a JSON array (or an
   /// empty body on success) instead of an object.
+  /// @deprecated Prefer [ApiClient.requestResult] — see [_request] note.
+  @Deprecated(
+    'Use ApiClient.requestResult instead — dual stack, prefer single ApiClient',
+  )
   Future<dynamic> _requestRaw(
     String method,
     String path, {
@@ -309,10 +352,7 @@ class SecureApiService {
     if (result['token'] is String && user is Map) {
       try {
         final id = user['id']?.toString() ?? '';
-        final appUser = AppUser.fromMap(
-          Map<String, dynamic>.from(user),
-          id,
-        );
+        final appUser = AppUser.fromMap(Map<String, dynamic>.from(user), id);
         await _saveSession(
           result['token'] as String,
           id,
@@ -344,7 +384,11 @@ class SecureApiService {
   /// Requests a password-reset token for [email]. In dev mode the backend
   /// returns a `devToken` so the app can complete the flow end-to-end.
   Future<Map<String, dynamic>> forgotPassword(String email) async {
-    return _request('POST', '/api/auth/forgot-password', body: {'email': email});
+    return _request(
+      'POST',
+      '/api/auth/forgot-password',
+      body: {'email': email},
+    );
   }
 
   /// Completes the reset with the emailed token and a new password.
@@ -364,6 +408,211 @@ class SecureApiService {
     return _request('GET', '/api/ai/usage');
   }
 
+  Future<Result<Map<String, dynamic>>> getAiUsageResult() async {
+    try {
+      final result = await getAiUsage();
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to load AI usage.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> forgotPasswordResult(
+    String email,
+  ) async {
+    try {
+      final result = await forgotPassword(email);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to send reset link.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> resetPasswordResult(
+    String token,
+    String newPassword,
+  ) async {
+    try {
+      final result = await resetPassword(token, newPassword);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to reset password.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> revokeDeviceSessionResult(
+    String sessionId,
+  ) async {
+    try {
+      final result = await revokeDeviceSession(sessionId);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to revoke device.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> linkChildResult(
+    String studentEmail,
+  ) async {
+    try {
+      final result = await linkChild(studentEmail);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to link child.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> createSectionResult({
+    required String label,
+    required String gradeLevel,
+    String? subject,
+  }) async {
+    try {
+      final result = await createSection(
+        label: label,
+        gradeLevel: gradeLevel,
+        subject: subject,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to create section.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> markAttendanceResult(
+    String sessionId,
+    String code, {
+    double? lat,
+    double? lng,
+    bool? isMocked,
+  }) async {
+    try {
+      final result = await markAttendance(
+        sessionId,
+        code,
+        lat: lat,
+        lng: lng,
+        isMocked: isMocked,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to mark attendance.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<List<dynamic>>> getMyOpenAttendanceSessionsResult() async {
+    try {
+      final sessions = await getMyOpenAttendanceSessions();
+      return Success(sessions);
+    } catch (e) {
+      return Failure(
+        'Failed to load attendance sessions.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> postSyllabusResult({
+    required String sectionId,
+    required String title,
+    required String syllabus,
+  }) async {
+    try {
+      final result = await postSyllabus(
+        sectionId: sectionId,
+        title: title,
+        syllabus: syllabus,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to post syllabus.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> createClassTaskResult({
+    required String sectionId,
+    required String title,
+    String? description,
+    DateTime? dueDate,
+    int points = 0,
+  }) async {
+    try {
+      final result = await createClassTask(
+        sectionId: sectionId,
+        title: title,
+        description: description,
+        dueDate: dueDate,
+        points: points,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to create task.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> addStudentToSectionResult(
+    String sectionId,
+    String studentEmail,
+  ) async {
+    try {
+      final result = await addStudentToSection(sectionId, studentEmail);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to add student.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
   Future<List<dynamic>> getDeviceSessions() async {
     final result = await _requestRaw('GET', '/api/auth/sessions');
     return result is List ? result : const [];
@@ -376,7 +625,285 @@ class SecureApiService {
 
   // User profile
   Future<Map<String, dynamic>> getProfile() async {
-    return _request('GET', '/api/users/profile');
+    final result = await _request('GET', '/api/users/profile');
+    if (result['error'] == null) _syncOrgBranding(result);
+    return result;
+  }
+
+  /// Result-typed wrapper for callers migrating off raw Map error handling.
+  Future<Result<Map<String, dynamic>>> getProfileResult() async {
+    try {
+      final result = await _request('GET', '/api/users/profile');
+      if (result['error'] != null) return Failure(result['error'].toString());
+      _syncOrgBranding(result);
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Connection failed. Please check your internet.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<List<dynamic>>> getTeacherNotesResult({
+    String? gradeLevel,
+    String? subject,
+  }) async {
+    try {
+      final notes = await getTeacherNotes(
+        gradeLevel: gradeLevel,
+        subject: subject,
+      );
+      return Success(notes);
+    } catch (e) {
+      return Failure(
+        'Failed to load class notes.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<List<dynamic>>> getNotesResult() async {
+    try {
+      final notes = await getNotes();
+      return Success(notes);
+    } catch (e) {
+      return Failure(
+        'Failed to load notes.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<List<dynamic>>> getSectionsResult() async {
+    try {
+      final sections = await getSections();
+      return Success(sections);
+    } catch (e) {
+      return Failure(
+        'Failed to load sections.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<List<dynamic>>> getLeaderboardResult() async {
+    try {
+      final entries = await getLeaderboard();
+      return Success(entries);
+    } catch (e) {
+      return Failure(
+        'Failed to load leaderboard.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getTeacherHomeResult() async {
+    try {
+      final result = await getTeacherHome();
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to load teacher home.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getLiveClassTokenResult(
+    String liveSessionId,
+  ) async {
+    try {
+      final result = await getLiveClassToken(liveSessionId);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to load live session.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getInstituteLiveClassesResult() async {
+    try {
+      final result = await getInstituteLiveClasses();
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to load live classes.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> joinSectionByInviteResult(
+    String inviteCode,
+  ) async {
+    try {
+      final result = await joinSectionByInvite(inviteCode);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to join classroom.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> createTeacherNoteResult({
+    required String title,
+    required String content,
+    required String gradeLevel,
+    required String subject,
+    String? topic,
+  }) async {
+    try {
+      final result = await createTeacherNote(
+        title: title,
+        content: content,
+        gradeLevel: gradeLevel,
+        subject: subject,
+        topic: topic,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to create note.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> deleteTeacherNoteResult(
+    String id,
+  ) async {
+    try {
+      final result = await deleteTeacherNote(id);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to delete note.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> updateProfileResult({
+    String? name,
+    String? currentPassword,
+    String? newPassword,
+    String? gradeLevel,
+    String? schoolBoard,
+    List<String>? weakSubjects,
+    List<String>? strongSubjects,
+    String? role,
+    String? organizationName,
+    String? accentColor,
+    String? orgLogoUrl,
+  }) async {
+    try {
+      final result = await updateProfile(
+        name: name,
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        gradeLevel: gradeLevel,
+        schoolBoard: schoolBoard,
+        weakSubjects: weakSubjects,
+        strongSubjects: strongSubjects,
+        role: role,
+        organizationName: organizationName,
+        accentColor: accentColor,
+        orgLogoUrl: orgLogoUrl,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to update profile.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getAdminUsersResult({
+    String query = '',
+  }) async {
+    try {
+      final result = await getAdminUsers(query: query);
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to load users.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> createImAccountResult({
+    required String name,
+    required String email,
+    required String password,
+    required List<String> permissions,
+  }) async {
+    try {
+      final result = await createImAccount(
+        name: name,
+        email: email,
+        password: password,
+        permissions: permissions,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to create account.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> assignUserRoleResult(
+    String userId, {
+    required String role,
+    List<String> permissions = const [],
+  }) async {
+    try {
+      final result = await assignUserRole(
+        userId,
+        role: role,
+        permissions: permissions,
+      );
+      if (result['error'] != null) return Failure(result['error'].toString());
+      return Success(result);
+    } catch (e) {
+      return Failure(
+        'Failed to assign role.',
+        error: e,
+        kind: FailureKind.network,
+      );
+    }
   }
 
   Future<Map<String, dynamic>> updateProfile({
@@ -388,7 +915,21 @@ class SecureApiService {
     List<String>? weakSubjects,
     List<String>? strongSubjects,
     String? role,
+    String? organizationName,
+    String? accentColor,
+    String? orgLogoUrl,
   }) async {
+    // Client-side validation for 1M: accentColor must be hex, role gate for org fields
+    if (accentColor != null && accentColor.isNotEmpty) {
+      final ok = RegExp(
+        r'^#([0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?)$',
+      ).hasMatch(accentColor);
+      if (!ok) return {'error': 'Invalid accent color. Use #RRGGBB format.'};
+    }
+    if ((organizationName != null || accentColor != null) &&
+        (_role == 'student' || _role == 'parent')) {
+      return {'error': 'Only teachers/admins can edit organization'};
+    }
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (currentPassword != null) body['currentPassword'] = currentPassword;
@@ -398,8 +939,12 @@ class SecureApiService {
     if (weakSubjects != null) body['weakSubjects'] = weakSubjects;
     if (strongSubjects != null) body['strongSubjects'] = strongSubjects;
     if (role != null) body['role'] = role;
+    if (organizationName != null) body['organizationName'] = organizationName;
+    if (accentColor != null) body['accentColor'] = accentColor;
+    if (orgLogoUrl != null) body['orgLogoUrl'] = orgLogoUrl;
 
     final result = await _request('PUT', '/api/users/profile', body: body);
+    if (result['error'] == null) _syncOrgBranding(result);
     if (result['role'] != null) {
       _role = result['role'];
       await _writeSecure(_authRoleKey, _role!);
@@ -468,12 +1013,16 @@ class SecureApiService {
     double? latitude,
     double? longitude,
   }) async {
-    return _request('POST', '/api/notes', body: {
-      'title': title,
-      'content': content,
-      'latitude': ?latitude,
-      'longitude': ?longitude,
-    });
+    return _request(
+      'POST',
+      '/api/notes',
+      body: {
+        'title': title,
+        'content': content,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      },
+    );
   }
 
   Future<Map<String, dynamic>> updateNote({
@@ -483,12 +1032,16 @@ class SecureApiService {
     double? latitude,
     double? longitude,
   }) async {
-    return _request('PUT', '/api/notes/$id', body: {
-      'title': title,
-      'content': content,
-      'latitude': ?latitude,
-      'longitude': ?longitude,
-    });
+    return _request(
+      'PUT',
+      '/api/notes/$id',
+      body: {
+        'title': title,
+        'content': content,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      },
+    );
   }
 
   Future<Map<String, dynamic>> deleteNote(String id) async {
@@ -501,8 +1054,8 @@ class SecureApiService {
   Future<void> pushProgress({int? xp, int? streak}) async {
     try {
       final body = <String, dynamic>{
-        'xp': ?xp,
-        'streak': ?streak,
+        if (xp != null) 'xp': xp,
+        if (streak != null) 'streak': streak,
       };
       if (body.isEmpty) return;
       await _requestRaw('PUT', '/api/users/progress', body: body);
@@ -513,12 +1066,16 @@ class SecureApiService {
   }
 
   /// Appends a row to the student's server-side activity log. Fire-and-forget.
-  Future<void> logActivity(String action, [Map<String, dynamic>? metadata]) async {
+  Future<void> logActivity(
+    String action, [
+    Map<String, dynamic>? metadata,
+  ]) async {
     try {
-      await _requestRaw('POST', '/api/users/activity', body: {
-        'action': action,
-        'metadata': ?metadata,
-      });
+      await _requestRaw(
+        'POST',
+        '/api/users/activity',
+        body: {'action': action, if (metadata != null) 'metadata': metadata},
+      );
     } catch (_) {
       // Never block the student's flow on telemetry.
     }
@@ -588,7 +1145,11 @@ class SecureApiService {
     return _request(
       'POST',
       '/api/attendance/sections',
-      body: {'label': label, 'gradeLevel': gradeLevel, 'subject': ?subject},
+      body: {
+        'label': label,
+        'gradeLevel': gradeLevel,
+        if (subject != null) 'subject': subject,
+      },
     );
   }
 
@@ -615,7 +1176,10 @@ class SecureApiService {
     return _request(
       'POST',
       '/api/attendance/sections/$sectionId/students',
-      body: {'studentEmail': studentEmail, 'rollNumber': ?rollNumber},
+      body: {
+        'studentEmail': studentEmail,
+        if (rollNumber != null) 'rollNumber': rollNumber,
+      },
     );
   }
 
@@ -654,11 +1218,11 @@ class SecureApiService {
     required String title,
     required String syllabus,
   }) {
-    return _request('POST', '/api/classroom/syllabus', body: {
-      'sectionId': sectionId,
-      'title': title,
-      'syllabus': syllabus,
-    });
+    return _request(
+      'POST',
+      '/api/classroom/syllabus',
+      body: {'sectionId': sectionId, 'title': title, 'syllabus': syllabus},
+    );
   }
 
   /// Tasks for the caller's classrooms. Teachers see all tasks with
@@ -676,13 +1240,17 @@ class SecureApiService {
     DateTime? dueDate,
     int points = 0,
   }) {
-    return _request('POST', '/api/classroom/tasks', body: {
-      'sectionId': sectionId,
-      'title': title,
-      'description': ?description,
-      'dueDate': dueDate?.toUtc().toIso8601String(),
-      'points': points,
-    });
+    return _request(
+      'POST',
+      '/api/classroom/tasks',
+      body: {
+        'sectionId': sectionId,
+        'title': title,
+        if (description != null) 'description': description,
+        'dueDate': dueDate?.toUtc().toIso8601String(),
+        'points': points,
+      },
+    );
   }
 
   Future<Map<String, dynamic>> deleteClassTask(String taskId) async {
@@ -695,9 +1263,11 @@ class SecureApiService {
     String taskId, {
     required String status,
   }) {
-    return _request('POST', '/api/classroom/tasks/$taskId/submit', body: {
-      'status': status,
-    });
+    return _request(
+      'POST',
+      '/api/classroom/tasks/$taskId/submit',
+      body: {'status': status},
+    );
   }
 
   /// In-app notification stream for the signed-in user.
@@ -713,7 +1283,7 @@ class SecureApiService {
     await _requestRaw(
       'POST',
       '/api/classroom/notifications/read',
-      body: {'id': ?id},
+      body: {if (id != null) 'id': id},
     );
   }
 
@@ -730,8 +1300,8 @@ class SecureApiService {
       '/api/attendance/sections/$sectionId/sessions',
       body: {
         'subject': subject,
-        'lat': ?lat,
-        'lng': ?lng,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
         'radiusMeters': radiusMeters,
       },
     );
@@ -767,11 +1337,11 @@ class SecureApiService {
         'code': code,
         'idempotencyKey': _uuid.v4(),
         'clientMarkedAt': DateTime.now().toUtc().toIso8601String(),
-        'lat': ?lat,
-        'lng': ?lng,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
         // Android reports when a fix came from a mock-location app. Honest
         // clients forward it; the server treats a missing value as unknown.
-        'isMocked': ?isMocked,
+        if (isMocked != null) 'isMocked': isMocked,
       },
     );
   }
@@ -872,5 +1442,133 @@ class SecureApiService {
     } catch (e) {
       return {'error': 'Upload failed. Please check your connection.'};
     }
+  }
+
+  Future<Map<String, dynamic>> uploadOrgLogo(String filePath) async {
+    if (_token == null) return {'error': 'Please sign in first.'};
+    try {
+      final uri = Uri.parse('$baseUrl/api/users/org-logo');
+      final request = http.MultipartRequest('POST', uri)
+        ..headers['Authorization'] = 'Bearer $_token'
+        ..headers['X-Device-Id'] = await _getDeviceId()
+        ..headers['X-Device-Name'] = _deviceName
+        ..files.add(await http.MultipartFile.fromPath('logo', filePath));
+      final streamed = await request.send().timeout(
+        const Duration(seconds: 60),
+      );
+      final body = await streamed.stream.bytesToString();
+      if (streamed.statusCode == 401) {
+        await _clearSession();
+        return {'error': 'Session expired. Please login again.'};
+      }
+      final decoded = await _decodeResponse(
+        http.Response(body, streamed.statusCode, headers: streamed.headers),
+      );
+      final map = decoded is Map
+          ? Map<String, dynamic>.from(decoded)
+          : <String, dynamic>{
+              'error': 'Unexpected upload response. Please try again.',
+            };
+      if (map['error'] == null) _syncOrgBranding(map);
+      return map;
+    } catch (e) {
+      return {'error': 'Upload failed. Please check your connection.'};
+    }
+  }
+
+  Future<Map<String, dynamic>> getTeacherHome() async {
+    final result = await _request('GET', '/api/classroom/teacher/home');
+    if (result['error'] == null) _syncOrgBranding(result);
+    return result;
+  }
+
+  Future<Map<String, dynamic>> getInstituteLiveClasses() async {
+    return _request('GET', '/api/admin/live-classes');
+  }
+
+  Future<Map<String, dynamic>> getLiveStatus(String sectionId) async {
+    return _request('GET', '/api/classroom/sections/$sectionId/live');
+  }
+
+  Future<Map<String, dynamic>> getMyLiveStatus() async {
+    return _request('GET', '/api/classroom/my-live');
+  }
+
+  Future<Map<String, dynamic>> startLiveClass(
+    String sectionId, {
+    required String title,
+    required bool recordingAllowed,
+  }) async {
+    return _request(
+      'POST',
+      '/api/classroom/sections/$sectionId/live/start',
+      body: {'title': title, 'recordingAllowed': recordingAllowed},
+    );
+  }
+
+  Future<Map<String, dynamic>> endLiveClass(String liveSessionId) async {
+    return _request('POST', '/api/classroom/live/$liveSessionId/end');
+  }
+
+  Future<Map<String, dynamic>> getLiveClassToken(String liveSessionId) async {
+    return _request('POST', '/api/classroom/live/$liveSessionId/token');
+  }
+
+  Future<Map<String, dynamic>> getAdminUsers({String query = ''}) async {
+    final q = query.trim();
+    return _request(
+      'GET',
+      '/api/admin/users${q.isEmpty ? '' : '?q=${Uri.encodeQueryComponent(q)}'}',
+    );
+  }
+
+  Future<Map<String, dynamic>> createImAccount({
+    required String name,
+    required String email,
+    required String password,
+    required List<String> permissions,
+  }) async {
+    return _request(
+      'POST',
+      '/api/admin/create-im',
+      body: {
+        'name': name,
+        'email': email,
+        'password': password,
+        'permissions': permissions,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> assignUserRole(
+    String userId, {
+    required String role,
+    List<String> permissions = const [],
+  }) async {
+    return _request(
+      'PATCH',
+      '/api/admin/users/$userId/role',
+      body: {'role': role, if (role == 'im') 'permissions': permissions},
+    );
+  }
+
+  Future<Map<String, dynamic>> getParentLiveStatus() async {
+    return _request('GET', '/api/parent/live');
+  }
+
+  Future<Map<String, dynamic>> getParentActivity() async {
+    return _request('GET', '/api/parent/activity');
+  }
+
+  Future<Map<String, dynamic>> getParentAiDigest() async {
+    return _request('GET', '/api/ai/parent-digest');
+  }
+
+  Future<Map<String, dynamic>> getParentRanks() async {
+    return _request('GET', '/api/parent/ranks');
+  }
+
+  Future<Map<String, dynamic>> getParentLiveHistory() async {
+    return _request('GET', '/api/parent/live-history');
   }
 }

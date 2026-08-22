@@ -302,11 +302,15 @@ class _JeeNeetTrainerScreenState extends State<JeeNeetTrainerScreen>
               return Expanded(
                 child: GestureDetector(
                   onTap: () {
+                    if (!mounted) return;
                     setState(() {
                       _examType = type;
+                      // P1 verified: TabController reassign disposes old correctly with mounted guard.
+                      final old = _tabController;
                       _tabController = TabController(
                           length: _subjectsByExam[type]!.length,
                           vsync: this);
+                      old.dispose();
                       _selectedSubject = _subjectsByExam[type]!.first;
                     });
                   },

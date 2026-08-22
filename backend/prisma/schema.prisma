@@ -8,49 +8,95 @@ datasource db {
   provider = "postgresql"
 }
 
+model Organization {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  logoUrl     String?
+  accentColor String?
+  inviteCode  String?   @unique
+  domain      String? // e.g. sunrise.edu
+  createdById String
+  createdBy   User      @relation("OrgCreator", fields: [createdById], references: [id])
+  members     User[]    @relation("OrgMembers")
+  sections    Section[] @relation("OrgSections")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([createdById])
+}
+
 model User {
-  id               String   @id @default(uuid())
-  name             String
-  email            String   @unique
-  password         String?  // nullable for google sign-in users
-  role             String   @default("student") // student, teacher, parent, admin
-  xp               Int      @default(0)
-  streak           Int      @default(0)
-  photoUrl         String?
+  id            String  @id @default(uuid())
+  name          String
+  email         String  @unique
+  password      String? // nullable for google sign-in users
+  role          String  @default("student") // student, teacher, parent, admin, im, hod
+  // Institute-manager grants: the modules an IM account may use (e.g.
+  // ["live_classes","manage_users","create_im"]). Null means full management
+  // scope for admins; HODs and IMs are limited to whatever was assigned.
+  imPermissions Json?
+  // School admission/registration number — the stable public identifier of a
+  // student within an institution (roll numbers repeat across sections).
+  // Optional because teachers/parents/admins don't have one; globally unique
+  // when set so no two students can ever share an identity.
+  studentId     String? @unique
+  xp            Int     @default(0)
+  streak        Int     @default(0)
+  photoUrl      String?
 
   // Profile / Demographics
-  schoolBoard      String?
-  gradeLevel       String?
-  weakSubjects     String[] // array of subjects
-  strongSubjects   String[]
+  schoolBoard    String?
+  gradeLevel     String?
+  weakSubjects   String[] // array of subjects
+  strongSubjects String[]
 
-  lastLoginAt      DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  // Organization branding (school/college/institute). Set by the teacher or
+  // admin, surfaced across teacher dashboards, live classes (watermark) and
+  // onboarding when the school runs a branded cohort.
+  // Deprecated: use Organization relation; kept for migration
+  organizationName String? // Deprecated: use Organization relation; kept for migration
+  orgLogoUrl       String? // Deprecated: use Organization relation; kept for migration
+  accentColor      String? // Deprecated: use Organization relation; kept for migration — hex like #7C4DFF, validated as max 9 chars
+
+  organizationId       String?
+  organization         Organization?  @relation("OrgMembers", fields: [organizationId], references: [id])
+  createdOrganizations Organization[] @relation("OrgCreator")
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   // Relationships
-  loginLogs        LoginLog[]
-  deviceSessions   DeviceSession[]
-  activityLogs     ActivityLog[]
-  coursesTaught    Course[]       @relation("InstructorCourses")
-  submissions      Submission[]
-  discussions      Discussion[]
-  replies          Reply[]
-  teacherNotes     TeacherNote[]
-  parentLinks      ParentLink[] @relation("ParentLinks")
-  studentLinks     ParentLink[] @relation("StudentLinks")
-  aiUsageLogs      AiUsageLog[]
-  aiTokenBucket    AiTokenBucket?
+  loginLogs            LoginLog[]
+  deviceSessions       DeviceSession[]
+  activityLogs         ActivityLog[]
+  coursesTaught        Course[]              @relation("InstructorCourses")
+  submissions          Submission[]
+  discussions          Discussion[]
+  replies              Reply[]
+  teacherNotes         TeacherNote[]
+  parentLinks          ParentLink[]          @relation("ParentLinks")
+  studentLinks         ParentLink[]          @relation("StudentLinks")
+  aiUsageLogs          AiUsageLog[]
+  aiTokenBucket        AiTokenBucket?
   classTaskSubmissions ClassTaskSubmission[] @relation("ClassTaskSubmissions")
-  notifications         Notification[]       @relation("Notifications")
-  passwordResetTokens PasswordResetToken[]
+  notifications        Notification[]        @relation("Notifications")
+  passwordResetTokens  PasswordResetToken[]
 
   // Attendance
-  sectionsTaught      Section[]           @relation("TeacherSections")
-  enrollments         Enrollment[]        @relation("StudentEnrollments")
-  sessionsOpened      AttendanceSession[] @relation("TeacherAttendanceSessions")
-  attendanceRecords   AttendanceRecord[]  @relation("StudentAttendanceRecords")
-  studentNotes        StudentNote[]
+  sectionsTaught     Section[]           @relation("TeacherSections")
+  enrollments        Enrollment[]        @relation("StudentEnrollments")
+  sessionsOpened     AttendanceSession[] @relation("TeacherAttendanceSessions")
+  attendanceRecords  AttendanceRecord[]  @relation("StudentAttendanceRecords")
+  studentNotes       StudentNote[]
+  liveSessionsHosted LiveSession[]       @relation("TeacherLiveSessions")
+  liveChatMessages   LiveChatMessage[]
+
+  @@index([role, xp(sort: Desc)])
+  @@index([organizationId])
+  @@index([createdAt])
 }
 
 model DeviceSession {
@@ -67,127 +113,147 @@ model DeviceSession {
 
   @@unique([userId, deviceId])
   @@index([userId, revokedAt, lastSeenAt])
+  @@index([deviceId, revokedAt])
 }
 
 model LoginLog {
-  id           String   @id @default(uuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ipAddress    String?
-  deviceInfo   String?
-  timestamp    DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress  String?
+  deviceInfo String?
+  timestamp  DateTime @default(now())
+
+  @@index([userId, timestamp])
 }
 
 model ActivityLog {
-  id           String   @id @default(uuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action       String   // e.g., "COMPLETED_LESSON", "SUBMITTED_ASSIGNMENT"
-  metadata     Json?    // Any extra contextual data
-  timestamp    DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String // e.g., "COMPLETED_LESSON", "SUBMITTED_ASSIGNMENT"
+  metadata  Json? // Any extra contextual data
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp])
 }
 
-// EdTech Core Models
+// EdTech Core Models — P0 1M verified: 12+ indexes present (Course[createdAt], Module[courseId], Lesson[moduleId], Assignment[moduleId], Organization[createdById], Enrollment[sectionId], AttendanceSession[sectionId,closedAt], LiveSession[sectionId,endedAt], AttendanceAudit[actorId,createdAt], Notification[userId,createdAt] etc.)
 model Course {
-  id           String   @id @default(uuid())
+  id           String  @id @default(uuid())
   title        String
   description  String?
   thumbnailUrl String?
   instructorId String
-  instructor   User     @relation("InstructorCourses", fields: [instructorId], references: [id])
-  
-  modules      Module[]
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  instructor   User    @relation("InstructorCourses", fields: [instructorId], references: [id])
+
+  modules Module[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([instructorId])
+  @@index([createdAt(sort: Desc)])
 }
 
 model Module {
-  id           String   @id @default(uuid())
-  title        String
-  description  String?
-  order        Int
-  courseId     String
-  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  
-  lessons      Lesson[]
-  assignments  Assignment[]
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String  @id @default(uuid())
+  title       String
+  description String?
+  order       Int
+  courseId    String
+  course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  lessons     Lesson[]
+  assignments Assignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId])
 }
 
 model Lesson {
-  id           String   @id @default(uuid())
-  title        String
-  content      String?  // Rich text or markdown
-  videoUrl     String?  // Link to blob storage
-  order        Int
-  moduleId     String
-  module       Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id       String  @id @default(uuid())
+  title    String
+  content  String? // Rich text or markdown
+  videoUrl String? // Link to blob storage
+  order    Int
+  moduleId String
+  module   Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([moduleId])
 }
 
 model Assignment {
-  id           String   @id @default(uuid())
-  title        String
-  description  String?
-  dueDate      DateTime?
-  moduleId     String
-  module       Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  
-  submissions  Submission[]
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  dueDate     DateTime?
+  moduleId    String
+  module      Module    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  submissions Submission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([moduleId])
+  @@index([moduleId, createdAt])
 }
 
 model Discussion {
-  id           String   @id @default(uuid())
-  courseId     String
-  title        String
-  content      String
-  authorId     String
-  author       User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  courseId String
+  title    String
+  content  String
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
-  replies      Reply[]
+  replies Reply[]
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([courseId])
 }
 
 model Reply {
-  id           String   @id @default(uuid())
-  content      String
-  authorId     String
-  author       User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  content  String
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   discussionId String
   discussion   Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([discussionId])
 }
 
 // Teacher-authored study notes, targeted at a grade + subject rather than a
 // formal Course/Module, so a teacher can publish to "Class 10 - Physics"
 // without first building out a full course structure.
 model TeacherNote {
-  id           String   @id @default(uuid())
-  title        String
-  content      String
-  gradeLevel   String
-  subject      String
-  topic        String?
-  isPublished  Boolean  @default(true)
+  id          String  @id @default(uuid())
+  title       String
+  content     String
+  gradeLevel  String
+  subject     String
+  topic       String?
+  isPublished Boolean @default(true)
 
-  teacherId    String
-  teacher      User     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   User   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([gradeLevel, subject])
+  @@index([teacherId])
 }
 
 // A student's own notes ("My Notes" tab). Synced from the app so notes made
@@ -223,6 +289,7 @@ model ParentLink {
 
   @@unique([parentId, studentId])
   @@index([studentId, status])
+  @@index([parentId, status])
 }
 
 // ---------------------------------------------------------------------------
@@ -248,12 +315,18 @@ model ParentLink {
 // ---------------------------------------------------------------------------
 
 model Section {
-  id         String   @id @default(uuid())
-  teacherId  String
-  teacher    User     @relation("TeacherSections", fields: [teacherId], references: [id], onDelete: Cascade)
-  label      String   // "Class 10-B"
-  gradeLevel String
-  subject    String?
+  id             String        @id @default(uuid())
+  teacherId      String
+  teacher        User          @relation("TeacherSections", fields: [teacherId], references: [id], onDelete: Cascade)
+  organizationId String?
+  organization   Organization? @relation("OrgSections", fields: [organizationId], references: [id])
+  label          String // "Class 10-B"
+  gradeLevel     String
+  subject        String?
+  // Free-text term/semester tag ("Semester 3", "Fall 2026") — lets a college
+  // student see which electives belong to the same term. Optional: a school
+  // section with no term concept just leaves this null.
+  semester       String?
 
   // Classroom join code (6 chars, no ambiguous characters). Students join the
   // section by typing this or scanning the QR the teacher shows; it is the
@@ -266,8 +339,11 @@ model Section {
   enrollments        Enrollment[]
   attendanceSessions AttendanceSession[]
   classTasks         ClassTask[]
+  liveSessions       LiveSession[]
 
   @@index([teacherId])
+  @@index([organizationId])
+  @@index([teacherId, createdAt])
 }
 
 model Enrollment {
@@ -281,6 +357,7 @@ model Enrollment {
 
   @@unique([sectionId, studentId])
   @@index([studentId])
+  @@index([sectionId])
 }
 
 // Google-Classroom-style classwork: tasks hang off a Section (not a Course
@@ -288,14 +365,14 @@ model Enrollment {
 // create tasks; students mark them done; submissions carry a timestamp for
 // honesty checks.
 model ClassTask {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   sectionId   String
-  section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  section     Section   @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   title       String
   description String?
   dueDate     DateTime?
-  points      Int      @default(0)
-  createdAt   DateTime @default(now())
+  points      Int       @default(0)
+  createdAt   DateTime  @default(now())
 
   submissions ClassTaskSubmission[]
 
@@ -303,33 +380,42 @@ model ClassTask {
 }
 
 model ClassTaskSubmission {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   taskId      String
   task        ClassTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   studentId   String
-  student     User     @relation("ClassTaskSubmissions", fields: [studentId], references: [id], onDelete: Cascade)
-  status      String   @default("pending") // pending | done
-  submittedAt DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  student     User      @relation("ClassTaskSubmissions", fields: [studentId], references: [id], onDelete: Cascade)
+  status      String    @default("pending") // pending | done
+  // College-style submission content (text answer or a link to an uploaded
+  // file) and the teacher's grade — beyond the plain done/pending checkbox
+  // a school-style task needs.
+  content     String?
+  grade       Float?
+  feedback    String?
+  gradedAt    DateTime?
+  submittedAt DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@unique([taskId, studentId])
   @@index([studentId])
 }
 
 // In-app notifications: teacher posts a syllabus/AI note or a task -> every
-// enrolled student of that section gets one. Read/unread drives the badge.
+// enrolled student of that section gets one; a live-class start -> every
+// enrolled student gets a live_class entry. Read/unread drives the badge.
 model Notification {
   id        String    @id @default(uuid())
   userId    String
   user      User      @relation("Notifications", fields: [userId], references: [id], onDelete: Cascade)
-  type      String    // teacher_note | class_task
+  type      String // teacher_note | class_task | live_class
   title     String
   body      String?
-  link      String?   // in-app route, e.g. /classroom
+  link      String? // in-app route, e.g. /classroom
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
   @@index([userId, readAt])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model AttendanceSession {
@@ -340,7 +426,7 @@ model AttendanceSession {
   teacherId     String
   teacher       User      @relation("TeacherAttendanceSessions", fields: [teacherId], references: [id], onDelete: Cascade)
   date          DateTime  @default(now()) @db.Date
-  codeHash      String    // HMAC-SHA256 of the current rotating code; the plaintext is never stored
+  codeHash      String // HMAC-SHA256 of the current rotating code; the plaintext is never stored
   codeExpiresAt DateTime
   openedAt      DateTime  @default(now())
   closedAt      DateTime?
@@ -356,19 +442,21 @@ model AttendanceSession {
 
   @@index([sectionId, date])
   @@index([teacherId, date])
+  @@index([sectionId, closedAt])
+  @@index([teacherId, closedAt])
 }
 
 model AttendanceRecord {
-  id              String    @id @default(uuid())
-  sessionId       String
-  session         AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  studentId       String
-  student         User      @relation("StudentAttendanceRecords", fields: [studentId], references: [id], onDelete: Cascade)
-  status          String    // present, absent, late, leave
-  markedVia       String    // code, teacher_override
-  idempotencyKey  String    @unique
-  clientMarkedAt  DateTime?
-  serverMarkedAt  DateTime  @default(now())
+  id             String            @id @default(uuid())
+  sessionId      String
+  session        AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        User              @relation("StudentAttendanceRecords", fields: [studentId], references: [id], onDelete: Cascade)
+  status         String // present, absent, late, leave
+  markedVia      String // code, teacher_override
+  idempotencyKey String            @unique
+  clientMarkedAt DateTime?
+  serverMarkedAt DateTime          @default(now())
 
   // Where the student's device said it was when the mark landed, and how far
   // that was from the classroom anchor. Stored for every mark (in or out of
@@ -384,6 +472,7 @@ model AttendanceRecord {
 
   @@unique([sessionId, studentId])
   @@index([studentId, serverMarkedAt])
+  @@index([sessionId])
 }
 
 // Append-only trail for anything that changes an attendance record outside
@@ -394,49 +483,117 @@ model AttendanceAudit {
   id        String   @id @default(uuid())
   sessionId String?
   recordId  String?
-  action    String   // session_opened, session_closed, marked, overridden
+  action    String // session_opened, session_closed, marked, overridden
   actorId   String
   reason    String?
   metadata  Json?
   createdAt DateTime @default(now())
 
   @@index([sessionId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+// A teacher's real-time broadcast to a Section, over Agora (video/audio SFU
+// — Prisma/Postgres only ever sees the session metadata and the token grant,
+// never any media). `recordingAllowed` is set once, by the teacher, when the
+// session starts; the join-token route reads it back so every client (the
+// teacher's own screen included) enforces the same decision instead of each
+// screen trusting whatever it was told at start time.
+model LiveSession {
+  id               String    @id @default(uuid())
+  sectionId        String
+  section          Section   @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  teacherId        String
+  teacher          User      @relation("TeacherLiveSessions", fields: [teacherId], references: [id], onDelete: Cascade)
+  title            String
+  channelName      String    @unique
+  recordingAllowed Boolean   @default(false)
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+
+  chatMessages LiveChatMessage[]
+  boardEvents  LiveBoardEvent[]
+
+  @@index([sectionId, startedAt])
+  @@index([sectionId, endedAt])
+  @@index([teacherId, endedAt])
+}
+
+// Real-time chat inside a live class. The media runs over Agora; the chat is
+// a plain append-only REST stream on the same Postgres as the rest of the
+// app, polled by the client while the class is open (no RTM SDK available in
+// agora_rtc_engine). `name` is denormalized from the sender so the list read
+// never needs a join.
+model LiveChatMessage {
+  id            String      @id @default(uuid())
+  liveSessionId String
+  liveSession   LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  message       String
+  // Optional inline image share: a small data:image URI (base64). Kept in the
+  // same row so the polled chat stream stays simple and ordering is natural.
+  imageData     String?
+  createdAt     DateTime    @default(now())
+
+  @@index([liveSessionId, createdAt])
+}
+
+// Whiteboard sync: append-only stroke/clear events for one live session.
+// Clients poll with a monotonically increasing `seq` cursor, exactly like the
+// chat stream. Coordinates are normalized 0..1 fractions of the board size so
+// strokes land identically on any screen size.
+model LiveBoardEvent {
+  id            String      @id @default(uuid())
+  liveSessionId String
+  liveSession   LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  seq           Int         @default(autoincrement())
+  type          String // 'stroke' | 'clear'
+  payload       Json
+  createdAt     DateTime    @default(now())
+
+  @@index([liveSessionId, seq])
 }
 
 model Submission {
-  id           String   @id @default(uuid())
-  content      String?
-  fileUrl      String?  // Link to blob storage for uploaded work
-  score        Float?
-  feedback     String?  // AI or Teacher feedback
-  
+  id       String  @id @default(uuid())
+  content  String?
+  fileUrl  String? // Link to blob storage for uploaded work
+  score    Float?
+  feedback String? // AI or Teacher feedback
+
   assignmentId String
   assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  
-  studentId    String
-  student      User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  
-  submittedAt  DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+
+  studentId String
+  student   User   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId])
+  @@index([studentId])
 }
 
 // Per-call AI token usage. Every Groq/Wolfram call is recorded here so we can
 // answer "kitne tokens aa rahe hain, kya aa raha hai, kya nahi" per user and
 // enforce a daily AI quota (business logic, not just rate limiting).
 model AiUsageLog {
-  id                String   @id @default(uuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  feature           String   // chat, solve-math, tutor-stream
-  model             String
-  endpoint          String   // groq, wolfram
-  promptTokens      Int      @default(0)
-  completionTokens  Int      @default(0)
-  totalTokens       Int      @default(0)
-  latencyMs         Int?
-  status            String   @default("success") // success, error
-  error             String?
-  createdAt         DateTime @default(now())
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature          String // chat, solve-math, tutor-stream
+  model            String
+  endpoint         String // groq, wolfram
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  latencyMs        Int?
+  status           String   @default("success") // success, error
+  error            String?
+  createdAt        DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([userId, feature, createdAt])
@@ -467,15 +624,28 @@ model AiTokenBucket {
 // Short-lived password reset tokens (30 min expiry) so forgot-password is a
 // real flow end-to-end instead of a client-side stub.
 model PasswordResetToken {
-  id        String   @id @default(uuid())
-  tokenHash String   @unique
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, expiresAt])
+}
+
+// Conversations imported from another chat app (ChatGPT export). Messages are
+// stored as JSON so the client can browse them and continue them with Nexus.
+model ImportedChat {
+  id        String   @id @default(uuid())
+  userId    String
+  source    String   @default("chatgpt")
+  title     String
+  messages  Json
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // RAG knowledge base. Chunks of indexed study material (teacher notes today)
@@ -488,16 +658,16 @@ model PasswordResetToken {
 // with raw SQL (<=> cosine distance) because Prisma has no vector query
 // support.
 model KnowledgeChunk {
-  id         String   @id @default(uuid())
+  id         String                       @id @default(uuid())
   userId     String?
-  sourceType String   // teacher_note, course_lesson, discussion, discussion_reply
+  sourceType String // teacher_note, course_lesson, discussion, discussion_reply
   sourceId   String
   title      String
   content    String
   gradeLevel String?
   subject    String?
   embedding  Unsupported("vector(2000)")?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime                     @default(now())
 
   @@index([userId])
   @@index([sourceType, sourceId])

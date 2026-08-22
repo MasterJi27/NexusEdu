@@ -21,6 +21,11 @@ const GPS_GRACE_METERS = 20;
 
 const EARTH_RADIUS_METERS = 6371000;
 
+// Most colleges require 75% attendance to be eligible to sit an exam. Not
+// configurable per-institution yet — the first real ask for a different
+// number is the natural time to make this a Section-level setting instead.
+const ATTENDANCE_ELIGIBILITY_THRESHOLD = 75;
+
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
@@ -89,8 +94,9 @@ async function logAudit(
 
 const sectionSchema = z.object({
   label: z.string().trim().min(1).max(100),
-  gradeLevel: z.string().trim().min(1).max(20),
+  gradeLevel: z.string().trim().min(1).max(100),
   subject: z.string().trim().max(50).optional(),
+  semester: z.string().trim().max(50).optional(),
 });
 
 router.post('/sections', authenticate, requireRole('teacher', 'admin'), validateBody(sectionSchema), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -146,7 +152,7 @@ router.post('/sections/join', authenticate, requireRole('student', 'admin'), val
       where: { sectionId_studentId: { sectionId: section.id, studentId: req.user!.id } },
       create: { sectionId: section.id, studentId: req.user!.id },
       update: {},
-      include: { section: { select: { id: true, label: true, gradeLevel: true, subject: true } } },
+      include: { section: { select: { id: true, label: true, gradeLevel: true, subject: true, semester: true } } },
     });
     res.status(200).json({ joined: true, section: enrollment.section });
   } catch (error) {
@@ -155,7 +161,40 @@ router.post('/sections/join', authenticate, requireRole('student', 'admin'), val
   }
 });
 
-async function assertOwnsSection(sectionId: string, teacherId: string) {
+// Student: every section they've joined — a college student's electives can
+// span several independently-owned sections in the same term, not one fixed
+// class, so this is a list rather than a single "my class".
+router.get('/my-sections', authenticate, requireRole('student', 'admin'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const enrollments = await prisma.enrollment.findMany({
+      where: { studentId: req.user!.id },
+      include: {
+        section: {
+          select: {
+            id: true,
+            label: true,
+            gradeLevel: true,
+            subject: true,
+            semester: true,
+            teacher: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.status(200).json(
+      enrollments.map((e) => ({
+        ...e.section,
+        teacherName: e.section.teacher.name,
+      })),
+    );
+  } catch (error) {
+    console.error('List my sections error:', error);
+    res.status(500).json({ error: 'Failed to fetch your classes.' });
+  }
+});
+
+export async function assertOwnsSection(sectionId: string, teacherId: string) {
   const section = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!section || section.teacherId !== teacherId) return null;
   return section;
@@ -604,7 +643,14 @@ router.post('/sessions/:id/mark', authenticate, requireRole('student', 'admin'),
         const existing = await prisma.attendanceRecord.findUnique({
           where: { sessionId_studentId: { sessionId: session.id, studentId: req.user!.id } },
         });
-        res.status(200).json(existing);
+        if (existing) {
+          res.status(200).json(existing);
+        } else {
+          // The unique violation was on the global idempotencyKey index, not
+          // the (sessionId, studentId) one — this key was already used for a
+          // different mark, so there is no record to return as "success".
+          res.status(409).json({ error: 'This idempotency key was already used for a different mark.' });
+        }
         return;
       }
       throw error;
@@ -656,7 +702,17 @@ router.post('/sessions/:id/batch', authenticate, requireRole('teacher', 'admin')
       isFiniteNumber(session.lat) && isFiniteNumber(session.lng) && isFiniteNumber(session.radiusMeters);
 
     const results: Array<Record<string, unknown>> = [];
-    let created = 0;
+    // Marks that pass enrollment + geofence go here for a single batched
+    // write below, instead of one `create` round trip per student.
+    const candidates: Array<{
+      studentId: string;
+      clientMarkedAt?: string;
+      lat?: number;
+      lng?: number;
+      isMocked?: boolean;
+      distanceMeters?: number;
+    }> = [];
+
     for (const m of req.body.marks as Array<{
       studentId: string;
       clientMarkedAt?: string;
@@ -689,29 +745,68 @@ router.post('/sessions/:id/batch', authenticate, requireRole('teacher', 'admin')
           continue;
         }
       }
-      try {
-        const record = await prisma.attendanceRecord.create({
-          data: {
-            sessionId: session.id,
-            studentId: m.studentId,
-            status: 'present',
-            markedVia: 'hotspot',
-            idempotencyKey: `hotspot:${session.id}:${m.studentId}:${m.clientMarkedAt ?? 'manual'}`,
-            clientMarkedAt: m.clientMarkedAt ? new Date(m.clientMarkedAt) : undefined,
-            markedLat: m.lat,
-            markedLng: m.lng,
-            distanceMeters,
-            wasMockedFix: m.isMocked,
-          },
+      candidates.push({ ...m, distanceMeters });
+    }
+
+    // Find which candidates already have a record for this session in one
+    // query, so they can be reported as duplicates without attempting (and
+    // catching a P2002 on) an individual insert for each.
+    const existing = candidates.length
+      ? await prisma.attendanceRecord.findMany({
+          where: { sessionId: session.id, studentId: { in: candidates.map((c) => c.studentId) } },
+          select: { studentId: true },
+        })
+      : [];
+    const alreadyMarked = new Set(existing.map((e) => e.studentId));
+    const toCreate = candidates.filter((c) => !alreadyMarked.has(c.studentId));
+
+    let created = 0;
+    // Tracks which of `toCreate` actually have a row after the write, so a
+    // student whose insert was silently skipped by `skipDuplicates` (the rare
+    // concurrent-batch race) is not reported as `present` when nothing was
+    // written for them.
+    const actuallyCreated = new Set<string>();
+    if (toCreate.length) {
+      const { count } = await prisma.attendanceRecord.createMany({
+        data: toCreate.map((m) => ({
+          sessionId: session.id,
+          studentId: m.studentId,
+          status: 'present',
+          markedVia: 'hotspot',
+          idempotencyKey: `hotspot:${session.id}:${m.studentId}:${m.clientMarkedAt ?? 'manual'}`,
+          clientMarkedAt: m.clientMarkedAt ? new Date(m.clientMarkedAt) : undefined,
+          markedLat: m.lat,
+          markedLng: m.lng,
+          distanceMeters: m.distanceMeters,
+          wasMockedFix: m.isMocked,
+        })),
+        // Safety net for the rare race (a concurrent batch already inserted
+        // the same student between the findMany above and this write) — the
+        // pre-check above is what makes per-student duplicate reporting
+        // accurate in the common case.
+        skipDuplicates: true,
+      });
+      created = count;
+      if (count === toCreate.length) {
+        for (const m of toCreate) actuallyCreated.add(m.studentId);
+      } else {
+        // Some inserts were skipped by the race above — check which rows
+        // actually exist now instead of assuming every candidate landed.
+        const confirmed = await prisma.attendanceRecord.findMany({
+          where: { sessionId: session.id, studentId: { in: toCreate.map((m) => m.studentId) } },
+          select: { studentId: true },
         });
-        created++;
-        results.push({ studentId: m.studentId, ok: true, status: record.status, distanceMeters });
-      } catch (error: any) {
-        if (error?.code === 'P2002') {
-          results.push({ studentId: m.studentId, ok: true, status: 'duplicate' });
-          continue;
-        }
-        throw error;
+        for (const c of confirmed) actuallyCreated.add(c.studentId);
+      }
+    }
+
+    for (const m of candidates) {
+      if (alreadyMarked.has(m.studentId)) {
+        results.push({ studentId: m.studentId, ok: true, status: 'duplicate' });
+      } else if (actuallyCreated.has(m.studentId)) {
+        results.push({ studentId: m.studentId, ok: true, status: 'present', distanceMeters: m.distanceMeters });
+      } else {
+        results.push({ studentId: m.studentId, ok: false, error: 'write_failed' });
       }
     }
     await logAudit('hotspot_batch', req.user!.id, {
@@ -740,6 +835,13 @@ router.post('/sessions/:id/override', authenticate, requireRole('teacher', 'admi
     const session = await assertOwnsSession(req.params.id as string, req.user!.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found.' });
+      return;
+    }
+    const enrollment = await prisma.enrollment.findFirst({
+      where: { sectionId: session.sectionId, studentId: req.body.studentId },
+    });
+    if (!enrollment) {
+      res.status(400).json({ error: 'That student is not enrolled in this section.' });
       return;
     }
     const record = await prisma.attendanceRecord.upsert({
@@ -797,6 +899,7 @@ async function historyFor(studentId: string, days: number) {
   });
   const total = records.length;
   const present = records.filter((r) => r.status === 'present' || r.status === 'late').length;
+  const percentage = total > 0 ? Math.round((present / total) * 100) : null;
   return {
     records: records.map((r) => ({
       id: r.id,
@@ -805,7 +908,17 @@ async function historyFor(studentId: string, days: number) {
       section: r.session.section.label,
       date: r.session.date,
     })),
-    summary: { total, present, percentage: total > 0 ? Math.round((present / total) * 100) : null },
+    summary: {
+      total,
+      present,
+      percentage,
+      // College-style eligibility rule: most institutions require 75%
+      // attendance to sit an exam. Null (not enough data yet) is neither
+      // eligible nor ineligible — the UI should show "not enough data", not
+      // guess.
+      eligibilityThreshold: ATTENDANCE_ELIGIBILITY_THRESHOLD,
+      eligible: percentage === null ? null : percentage >= ATTENDANCE_ELIGIBILITY_THRESHOLD,
+    },
   };
 }
 

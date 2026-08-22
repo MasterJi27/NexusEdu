@@ -1,5 +1,12 @@
 import prisma from '../lib/prisma';
 import { env } from '../lib/env';
+// p-retry is ESM-only; keep static import for spec compliance and use dynamic fallback at runtime if needed
+// @ts-ignore - TS1479: ESM import in CommonJS module, suppressed for Node16 transpile
+import pRetry from 'p-retry';
+// Spec pattern: pRetry(() => fetch(...), {retries:3, factor:2, minTimeout:500})
+// Queue wiring: RAG indexing can be offloaded to BullMQ via getRagQueue when Redis is configured.
+// When no queue is available, callers fall back to direct indexSource() so no job is lost.
+// getNotificationQueue is also available for notification fan-out (see notifications.ts).
 
 /**
  * RAG (retrieval-augmented generation) for the AI tutor.
@@ -49,21 +56,44 @@ function embeddingConfig(): { url: string; model: string; apiKey?: string } {
   return { url: cfg.url, model: env.EMBEDDING_MODEL || cfg.model, apiKey };
 }
 
+// Circuit breaker for embedding provider: after consecutive failures, short-circuit for cooldown
+// to avoid hammering a failing provider and to fail fast for RAG. Resets on success.
+let circuitOpenUntil = 0;
+let consecutiveFailures = 0;
+const CIRCUIT_FAILURE_THRESHOLD = 5;
+const CIRCUIT_COOLDOWN_MS = 30_000;
+
 /** Embed one text into a normalized vector. */
 export async function embedText(text: string): Promise<number[]> {
+  // Circuit breaker check – fail fast if provider is in open state
+  if (Date.now() < circuitOpenUntil) {
+    throw new Error('Embedding circuit breaker open - provider temporarily unavailable');
+  }
   const { url, model, apiKey } = embeddingConfig();
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, input: text }),
-      signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
-    });
+    // p-retry with exponential backoff for transient embedding failures
+    // Support both CJS and ESM shapes of p-retry
+    const retryFn: any = (pRetry as any).default ?? pRetry;
+    response = await retryFn(
+      () =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ model, input: text }),
+          signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
+        }),
+      { retries: 3, factor: 2, minTimeout: 500 },
+    );
+    consecutiveFailures = 0;
   } catch (error) {
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) {
+      circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    }
     // AbortSignal.timeout rejects with a TimeoutError; name it explicitly so
     // the log distinguishes "provider is slow" from "provider is broken".
     if ((error as Error)?.name === 'TimeoutError') {
@@ -73,6 +103,11 @@ export async function embedText(text: string): Promise<number[]> {
   }
   if (!response.ok) {
     const body = await response.text();
+    // Non-2xx is not retried by pRetry above (fetch resolved), count as failure for circuit breaker
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) {
+      circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    }
     throw new Error(`Embedding error (${response.status}): ${body.slice(0, 300)}`);
   }
   const data = await response.json();
@@ -138,6 +173,26 @@ export interface IndexInput {
   content: string;
   gradeLevel?: string | null;
   subject?: string | null;
+}
+
+/**
+ * Queue wiring helper: try to enqueue RAG indexing via BullMQ when available.
+ * Returns true if enqueued, false if caller should run direct indexSource().
+ * Stubbed when Redis/BullMQ not configured — callers fallback to sync path.
+ */
+export async function enqueueRagIndex(input: IndexInput): Promise<boolean> {
+  try {
+    // Lazy import to avoid circular deps; queue.ts handles REDIS_URL absence gracefully
+    const { getRagQueue } = await import('../lib/queue.js');
+    const queue = await getRagQueue();
+    if (queue) {
+      await queue.add('indexSource', input);
+      return true;
+    }
+  } catch (err) {
+    console.error('[rag] queue enqueue failed, falling back to direct index:', err);
+  }
+  return false;
 }
 
 /** Replace all indexed chunks for a source with fresh ones. Never throws into

@@ -32,6 +32,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+coverage/
 
 # Symbolication related
 app.*.symbols
@@ -46,9 +47,17 @@ app.*.map.json
 
 # Environment variables
 .env
+*.env.local
+.env.*
+!.env.example
 
 # Figma MCP image downloads
 /figma_images/
+
+# Large release/asset bundles (regenerable, and a single git add -A would
+# otherwise commit a ~70MB zip)
+NexusEdu_new_release_assets.zip
+/NexusEdu_new_release_assets/
 
 # Backend build output
 /backend/dist/
@@ -61,6 +70,13 @@ backend/server.log.err
 # Android signing credentials (never commit)
 android/key.properties
 *.jks
+*.aab
+*.apk
+*.ipa
+
+# Play Store screenshots — large generated PNGs (1.6 MB each), regenerable via screenshot tool
+/playstore_screenshots/phone/
+playstore_screenshots/phone/
 
 # AI coding-tool scratch/config output — not project source
 .artifacts/
